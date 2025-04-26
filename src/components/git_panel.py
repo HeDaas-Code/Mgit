@@ -2,24 +2,31 @@
 # -*- coding: utf-8 -*-
 
 import os
-import sys
+import re
+import shutil
+import threading
+import time
 import git
+from datetime import datetime
 from pathlib import Path
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QListWidget, QListWidgetItem,
-                           QCheckBox, QHBoxLayout, QPushButton, QInputDialog, QMessageBox,
-                           QFileDialog, QComboBox, QToolBar, QAction, QSizePolicy, QMenu, QDialog, QSplitter)
-from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
+                          QLabel, QLineEdit, QComboBox, QProgressBar,
+                          QListWidget, QListWidgetItem, QMessageBox, QMenu,
+                          QAction, QSplitter, QDialog, QFormLayout, QCheckBox, QFileDialog,
+                          QInputDialog)
+from PyQt5.QtCore import Qt, pyqtSignal, QSize
 from PyQt5.QtGui import QIcon, QCursor, QFont
-from qfluentwidgets import (LineEdit, PrimaryToolButton, FluentIcon, TitleLabel, 
-                          PrimaryPushButton, InfoBar, InfoBarPosition, ComboBox,
-                          CardWidget, ToolButton, TransparentToolButton, ToolTipFilter,
-                          ToolTipPosition)
+from qfluentwidgets import (PrimaryPushButton, TransparentToolButton, ToolButton, 
+                           FluentIcon, ComboBox, InfoBar, InfoBarPosition, 
+                           LineEdit, TitleLabel, CardWidget)
+
+from src.utils.enhanced_account_manager import EnhancedAccountManager
 from src.utils.git_manager import GitManager
-from src.utils.config_manager import ConfigManager
-from src.utils.account_manager import AccountManager
-from src.utils.logger import info, warning, error, debug
 from src.utils.git_thread import GitThread
+from src.utils.config_manager import ConfigManager
+from src.utils.logger import info, warning, error, debug
 from src.components.loading_mask import LoadingMask
+from src.components.account_panel import AccountPanel
 
 class GitPanel(QWidget):
     """ Git面板组件 """
@@ -40,6 +47,9 @@ class GitPanel(QWidget):
         self.gitThread.operationStarted.connect(self.onGitOperationStarted)
         self.gitThread.operationFinished.connect(self.onGitOperationFinished)
         self.gitThread.progressUpdate.connect(self.onGitProgressUpdate)
+        
+        # 创建账号管理器实例（放在这里以确保所有地方使用同一个实例）
+        self.accountManager = EnhancedAccountManager()
         
         # 初始化UI
         self.initUI()
@@ -66,6 +76,12 @@ class GitPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
+        
+        # 添加账号面板（新增）
+        # 传递accountManager确保使用同一个账号管理器实例
+        self.accountPanel = AccountPanel(self, account_manager=self.accountManager)
+        self.accountPanel.accountChanged.connect(self.onAccountChanged)
+        layout.addWidget(self.accountPanel)
         
         # 标题卡片
         titleCard = CardWidget(self)
@@ -198,60 +214,236 @@ class GitPanel(QWidget):
         self.changesList.setSelectionMode(QListWidget.ExtendedSelection)
         operationCardLayout.addWidget(self.changesList)
         
-        # 按钮布局
-        btnLayout = QHBoxLayout()
+        # 操作按钮区域
+        buttonLayout = QHBoxLayout()
+        
+        # 保存暂存
+        self.stashBtn = ToolButton(FluentIcon.SAVE)
+        self.stashBtn.setToolTip("创建/应用储藏")
+        self.stashBtn.clicked.connect(self.showStashMenu)
+        buttonLayout.addWidget(self.stashBtn)
+        
+        # 暂存变更按钮
+        self.stageBtn = PrimaryPushButton("暂存所选")
+        self.stageBtn.setIcon(FluentIcon.ADD.icon())
+        self.stageBtn.clicked.connect(self.stageSelected)
+        buttonLayout.addWidget(self.stageBtn)
+        
+        # 取消暂存按钮
+        self.unstageBtn = PrimaryPushButton("取消暂存")
+        self.unstageBtn.setIcon(FluentIcon.REMOVE.icon())
+        self.unstageBtn.clicked.connect(self.unstageSelected)
+        buttonLayout.addWidget(self.unstageBtn)
+        
+        # 丢弃变更按钮
+        self.discardBtn = PrimaryPushButton("丢弃所选")
+        self.discardBtn.setIcon(FluentIcon.DELETE.icon())
+        self.discardBtn.clicked.connect(self.discardSelected)
+        buttonLayout.addWidget(self.discardBtn)
+        
+        operationCardLayout.addLayout(buttonLayout)
         
         # 提交按钮
-        self.commitBtn = PrimaryPushButton("提交")
-        self.commitBtn.setIcon(FluentIcon.SAVE.icon())
+        self.commitBtn = PrimaryPushButton("提交变更")
+        self.commitBtn.setIcon(FluentIcon.ACCEPT.icon())
         self.commitBtn.clicked.connect(self.commitChanges)
-        btnLayout.addWidget(self.commitBtn)
+        operationCardLayout.addWidget(self.commitBtn)
         
-        # 推送按钮
-        self.pushBtn = PrimaryPushButton("推送")
-        self.pushBtn.setIcon(FluentIcon.SHARE.icon())
-        self.pushBtn.clicked.connect(self.pushChanges)
-        btnLayout.addWidget(self.pushBtn)
+        # 拉取和推送按钮区域
+        pullPushLayout = QHBoxLayout()
         
         # 拉取按钮
         self.pullBtn = PrimaryPushButton("拉取")
         self.pullBtn.setIcon(FluentIcon.DOWN.icon())
         self.pullBtn.clicked.connect(self.pullChanges)
-        btnLayout.addWidget(self.pullBtn)
+        pullPushLayout.addWidget(self.pullBtn)
         
-        operationCardLayout.addLayout(btnLayout)
+        # 推送按钮
+        self.pushBtn = PrimaryPushButton("推送")
+        self.pushBtn.setIcon(FluentIcon.UP.icon())
+        self.pushBtn.clicked.connect(self.pushChanges)
+        pullPushLayout.addWidget(self.pushBtn)
         
-        # 协作操作按钮布局
-        collabBtnLayout = QHBoxLayout()
+        operationCardLayout.addLayout(pullPushLayout)
         
-        # 存储按钮
-        self.stashBtn = PrimaryPushButton("存储")
-        self.stashBtn.setIcon(FluentIcon.SAVE.icon())
-        self.stashBtn.clicked.connect(self.showStashMenu)
-        collabBtnLayout.addWidget(self.stashBtn)
-        
-        operationCardLayout.addLayout(collabBtnLayout)
-        
+        # 添加操作卡片到主布局
         layout.addWidget(operationCard)
         
-        # 历史记录卡片
-        historyCard = CardWidget(self)
-        historyCardLayout = QVBoxLayout(historyCard)
-        historyCardLayout.setContentsMargins(10, 10, 10, 10)
+    def onAccountChanged(self, account):
+        """账号变更处理函数"""
+        info(f"账号变更: {account}")
         
-        historyCardLayout.addWidget(QLabel("提交历史:"))
+        # 根据账号状态更新界面元素
+        if account:
+            # 启用与远程相关的按钮
+            self.importGitHubBtn.setEnabled(True)
+            
+            # 如果当前已连接到仓库，启用推送和拉取
+            if self.gitManager and self.gitManager.isValidRepo():
+                # 检查当前远程仓库，如果需要可以更新远程仓库设置
+                self.refreshStatus()
+                
+                # 如果推送按钮原本是启用的，保持启用
+                if self.pushBtn.isEnabled():
+                    self.syncBtn.setEnabled(True)
+        else:
+            # 禁用与远程账号相关的操作
+            # 但保持本地Git操作可用
+            pass
         
-        # 历史记录列表
-        self.historyList = QListWidget()
-        historyCardLayout.addWidget(self.historyList)
+    def stageSelected(self):
+        """暂存选中的文件"""
+        if not self.gitManager:
+            return
+            
+        selected_items = self.changesList.selectedItems()
+        if not selected_items:
+            InfoBar.warning(
+                title="未选择文件",
+                content="请选择要暂存的文件",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+            
+        files_to_stage = []
+        for item in selected_items:
+            # 获取文件路径
+            file_status, file_path = item.data(Qt.UserRole)
+            
+            # 只暂存未跟踪或已修改的文件
+            if file_status in ["未跟踪", "已修改", "已删除"]:
+                files_to_stage.append(file_path)
+                
+        if files_to_stage:
+            try:
+                self.gitManager.stage(files_to_stage)
+                self.refreshStatus()
+                
+                InfoBar.success(
+                    title="暂存成功",
+                    content=f"已暂存 {len(files_to_stage)} 个文件",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+            except Exception as e:
+                error(f"暂存文件失败: {str(e)}")
+                QMessageBox.warning(self, "暂存失败", f"暂存文件时出错: {str(e)}")
+                
+    def unstageSelected(self):
+        """取消暂存选中的文件"""
+        if not self.gitManager:
+            return
+            
+        selected_items = self.changesList.selectedItems()
+        if not selected_items:
+            InfoBar.warning(
+                title="未选择文件",
+                content="请选择要取消暂存的文件",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+            
+        files_to_unstage = []
+        for item in selected_items:
+            # 获取文件路径
+            file_status, file_path = item.data(Qt.UserRole)
+            
+            # 只取消暂存已暂存的文件
+            if "已暂存" in file_status:
+                files_to_unstage.append(file_path)
+                
+        if files_to_unstage:
+            try:
+                self.gitManager.unstage(files_to_unstage)
+                self.refreshStatus()
+                
+                InfoBar.success(
+                    title="取消暂存成功",
+                    content=f"已取消暂存 {len(files_to_unstage)} 个文件",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+            except Exception as e:
+                error(f"取消暂存文件失败: {str(e)}")
+                QMessageBox.warning(self, "取消暂存失败", f"取消暂存文件时出错: {str(e)}")
+                
+    def discardSelected(self):
+        """丢弃选中文件的变更"""
+        if not self.gitManager:
+            return
+            
+        selected_items = self.changesList.selectedItems()
+        if not selected_items:
+            InfoBar.warning(
+                title="未选择文件",
+                content="请选择要丢弃变更的文件",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            return
+            
+        # 确认丢弃变更
+        reply = QMessageBox.warning(
+            self,
+            "丢弃变更",
+            "确定要丢弃所选文件的变更吗？此操作无法撤销！",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
         
-        layout.addWidget(historyCard)
+        if reply != QMessageBox.Yes:
+            return
+            
+        files_to_discard = []
+        for item in selected_items:
+            # 获取文件路径
+            file_status, file_path = item.data(Qt.UserRole)
+            files_to_discard.append(file_path)
+            
+        if files_to_discard:
+            try:
+                # 先取消暂存，再丢弃变更
+                self.gitManager.unstage(files_to_discard)
+                self.gitManager.discard(files_to_discard)
+                self.refreshStatus()
+                
+                InfoBar.success(
+                    title="丢弃变更成功",
+                    content=f"已丢弃 {len(files_to_discard)} 个文件的变更",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+            except Exception as e:
+                error(f"丢弃变更失败: {str(e)}")
+                QMessageBox.warning(self, "丢弃变更失败", f"丢弃变更时出错: {str(e)}")
+                
+    def resizeEvent(self, event):
+        """处理窗口大小变更事件"""
+        super().resizeEvent(event)
         
-        # 设置拉伸因子
-        layout.setStretch(0, 0)  # 标题卡片不拉伸
-        layout.setStretch(1, 0)  # 外部仓库卡片不拉伸
-        layout.setStretch(2, 1)  # 操作区卡片少量拉伸
-        layout.setStretch(3, 2)  # 历史记录卡片大量拉伸
+        # 更新加载遮罩的位置和大小
+        if hasattr(self, 'loadingMask'):
+            self.loadingMask.resize(self.size())
         
     def updateRecentRepositories(self):
         """ 更新最近仓库下拉框 """
@@ -505,59 +697,19 @@ class GitPanel(QWidget):
             repo_path: 本地仓库路径
             repo_name: 仓库名称
         """
-        # 延迟导入，避免循环引用
-        from src.components.account_dialog import AccountDialog
+        # 使用类的账号管理器实例
+        current_account = self.accountManager.get_current_account()
         
-        # 创建账号管理器实例
-        account_manager = AccountManager()
+        # 调试输出当前账号信息
+        debug(f"当前登录账号信息: {current_account}")
         
-        # 获取账号列表
-        github_accounts = account_manager.get_github_accounts()
-        gitlab_accounts = account_manager.get_gitlab_accounts()
-        
-        # 如果没有配置任何账号，提示添加账号
-        if not github_accounts and not gitlab_accounts:
-            reply = QMessageBox.question(
-                self, "添加账号",
-                "创建远程仓库需要配置GitHub或GitLab账号，是否现在添加账号？",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
+        # 如果存在当前登录的账号，直接使用该账号
+        if current_account and isinstance(current_account, dict) and 'type' in current_account and 'data' in current_account:
+            platform = current_account["type"]
+            account_data = current_account["data"]
             
-            if reply == QMessageBox.Yes:
-                dialog = AccountDialog(self)
-                if dialog.exec_() != QDialog.Accepted:
-                    # 用户取消了添加账号，直接返回
-                    return
-                
-                # 重新获取账号列表
-                github_accounts = account_manager.get_github_accounts()
-                gitlab_accounts = account_manager.get_gitlab_accounts()
-                
-                # 仍然没有账号，返回
-                if not github_accounts and not gitlab_accounts:
-                    return
-        
-        # 选择平台和账号
-        choices = []
-        for account in github_accounts:
-            choices.append({
-                "display": f"GitHub: {account['name']} ({account['username']})",
-                "platform": "github",
-                "account": account
-            })
+            debug(f"使用{platform}账号创建远程仓库，用户名: {account_data.get('username', '未知')}")
             
-        for account in gitlab_accounts:
-            choices.append({
-                "display": f"GitLab: {account['name']} ({account['username']})",
-                "platform": "gitlab",
-                "account": account
-            })
-        
-        # 显示选择对话框
-        if len(choices) == 1:
-            # 只有一个账号，直接使用
-            selected = choices[0]
             # 询问是否创建为私有仓库
             is_private = QMessageBox.question(
                 self, "仓库隐私设置",
@@ -565,129 +717,173 @@ class GitPanel(QWidget):
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             ) == QMessageBox.Yes
-        else:
-            # 有多个账号，让用户选择
-            dialog = QDialog(self)
-            dialog.setWindowTitle("选择平台和账号")
-            dialog.resize(350, 150)
             
-            layout = QVBoxLayout(dialog)
-            
-            # 选择提示
-            layout.addWidget(QLabel("请选择要在哪个平台上创建远程仓库:"))
-            
-            # 账号选择下拉框
-            combo = ComboBox()
-            for i, choice in enumerate(choices):
-                combo.addItem(choice["display"], i)
-            
-            layout.addWidget(combo)
-            
-            # 访问权限选择（仅对GitHub有效）
-            privacyBox = QCheckBox("创建为私有仓库")
-            layout.addWidget(privacyBox)
-            
-            # 按钮区域
-            btnLayout = QHBoxLayout()
-            okBtn = PrimaryPushButton("确定")
-            cancelBtn = QPushButton("取消")
-            
-            btnLayout.addStretch(1)
-            btnLayout.addWidget(okBtn)
-            btnLayout.addWidget(cancelBtn)
-            
-            layout.addLayout(btnLayout)
-            
-            # 连接信号
-            okBtn.clicked.connect(dialog.accept)
-            cancelBtn.clicked.connect(dialog.reject)
-            
-            # 显示对话框
-            if dialog.exec_() != QDialog.Accepted:
-                return
-            
-            # 获取选择的账号
-            index = combo.currentData()
-            selected = choices[index]
-            is_private = privacyBox.isChecked()
-        
-        # 根据平台创建远程仓库
-        platform = selected["platform"]
-        account = selected["account"]
-        
-        try:
-            remote_url = None
-            if platform == "github":
-                # 创建GitHub远程仓库
-                result = account_manager.create_github_repository(
-                    account["username"],
-                    account["token"],
-                    repo_name,
-                    f"由MGit创建的仓库 - {repo_name}",
-                    private=is_private
-                )
-                
-                if result:
-                    remote_url = result["clone_url"]
-                    info(f"GitHub远程仓库创建成功: {remote_url}")
-                else:
-                    error("GitHub远程仓库创建失败")
-                    QMessageBox.critical(self, "错误", "GitHub远程仓库创建失败，请检查网络和账号设置")
-                    return
-            elif platform == "gitlab":
-                # 创建GitLab远程仓库
-                result = account_manager.create_gitlab_repository(
-                    account["url"],
-                    account["token"],
-                    repo_name,
-                    f"由MGit创建的仓库 - {repo_name}",
-                    visibility="private" if is_private else "public"
-                )
-                
-                if result:
-                    remote_url = result["http_url_to_repo"]
-                    info(f"GitLab远程仓库创建成功: {remote_url}")
-                else:
-                    error("GitLab远程仓库创建失败")
-                    QMessageBox.critical(self, "错误", "GitLab远程仓库创建失败，请检查网络和账号设置")
-                    return
-            
-            # 将远程仓库与本地仓库关联并推送内容
-            if remote_url:
-                # 设置远程仓库
-                debug(f"正在关联本地仓库与远程仓库: {remote_url}")
-                try:
-                    if 'origin' in [remote.name for remote in local_repo.remotes]:
-                        # 如果origin已存在，则设置URL
-                        local_repo.remote('origin').set_url(remote_url)
-                    else:
-                        # 创建新的远程引用
-                        local_repo.create_remote('origin', remote_url)
+            try:
+                remote_url = None
+                if platform == "github":
+                    # 创建GitHub远程仓库
+                    token = account_data["token"]
+                    username = account_data["username"]
                     
-                    # 修改远程仓库URL以包含token（用于推送时身份验证）
-                    authenticated_url = remote_url
-                    if platform == "github":
-                        authenticated_url = remote_url.replace('https://', f'https://{account["username"]}:{account["token"]}@')
-                    elif platform == "gitlab":
-                        authenticated_url = remote_url.replace('https://', f'https://oauth2:{account["token"]}@')
+                    # GitHub API请求
+                    import requests
+                    headers = {"Authorization": f"token {token}"}
+                    data = {
+                        "name": repo_name,
+                        "description": f"由MGit创建的仓库 - {repo_name}",
+                        "private": is_private,
+                        # 设置不创建任何初始文件：README, .gitignore等
+                        "auto_init": False,
+                        "gitignore_template": None,
+                        "license_template": None
+                    }
                     
-                    # 推送本地内容到远程仓库
-                    info(f"正在将本地仓库推送至远程: {remote_url}")
-                    local_repo.git.push('--set-upstream', authenticated_url, 'main')
-                    
-                    info(f"成功推送本地仓库至远程仓库: {remote_url}")
-                    return True
-                except Exception as e:
-                    error(f"无法关联或推送至远程仓库: {str(e)}")
-                    QMessageBox.warning(
-                        self, 
-                        "远程仓库关联警告", 
-                        f"远程仓库已创建，但无法推送本地内容:\n{str(e)}\n\n" +
-                        f"您需要手动执行推送操作。远程仓库URL: {remote_url}"
+                    response = requests.post(
+                        "https://api.github.com/user/repos",
+                        headers=headers,
+                        json=data,
+                        verify=False
                     )
-        except Exception as e:
-            error(f"创建远程仓库时发生错误: {str(e)}")
-            QMessageBox.critical(self, "错误", f"创建远程仓库时发生错误: {str(e)}")
+                    
+                    if response.status_code in [201, 200]:
+                        result = response.json()
+                        remote_url = result["clone_url"]
+                        info(f"GitHub远程仓库创建成功: {remote_url}")
+                    else:
+                        error(f"GitHub远程仓库创建失败: {response.status_code} - {response.text}")
+                        QMessageBox.critical(self, "错误", "GitHub远程仓库创建失败，请检查网络和账号设置")
+                        return
+                        
+                elif platform == "gitee":
+                    # 创建Gitee远程仓库
+                    token = account_data["token"]
+                    username = account_data["username"]
+                    
+                    # Gitee API请求
+                    import requests
+                    data = {
+                        "access_token": token,
+                        "name": repo_name,
+                        "description": f"由MGit创建的仓库 - {repo_name}",
+                        "private": 1 if is_private else 0,
+                        # 设置不创建任何初始文件
+                        "auto_init": False,
+                        "gitignore_template": "",
+                        "license_template": ""
+                    }
+                    
+                    response = requests.post(
+                        "https://gitee.com/api/v5/user/repos",
+                        data=data,
+                        verify=False
+                    )
+                    
+                    if response.status_code in [201, 200]:
+                        result = response.json()
+                        remote_url = result["html_url"]
+                        info(f"Gitee远程仓库创建成功: {remote_url}")
+                    else:
+                        error(f"Gitee远程仓库创建失败: {response.status_code} - {response.text}")
+                        QMessageBox.critical(self, "错误", "Gitee远程仓库创建失败，请检查网络和账号设置")
+                        return
+                        
+                elif platform == "gitlab":
+                    # 创建GitLab远程仓库
+                    token = account_data["token"]
+                    url = account_data["url"]
+                    
+                    # 确保URL格式正确
+                    if not url.endswith('/'):
+                        url += '/'
+                    
+                    # GitLab API请求
+                    import requests
+                    headers = {"Private-Token": token}
+                    data = {
+                        "name": repo_name,
+                        "description": f"由MGit创建的仓库 - {repo_name}",
+                        "visibility": "private" if is_private else "public",
+                        # 设置不创建任何初始文件
+                        "initialize_with_readme": False,
+                        "lfs_enabled": False
+                    }
+                    
+                    response = requests.post(
+                        f"{url}api/v4/projects",
+                        headers=headers,
+                        json=data,
+                        verify=False
+                    )
+                    
+                    if response.status_code in [201, 200]:
+                        result = response.json()
+                        remote_url = result["http_url_to_repo"]
+                        info(f"GitLab远程仓库创建成功: {remote_url}")
+                    else:
+                        error(f"GitLab远程仓库创建失败: {response.status_code} - {response.text}")
+                        QMessageBox.critical(self, "错误", "GitLab远程仓库创建失败，请检查网络和账号设置")
+                        return
+                
+                # 将远程仓库与本地仓库关联并推送内容
+                if remote_url:
+                    # 设置远程仓库
+                    debug(f"正在关联本地仓库与远程仓库: {remote_url}")
+                    try:
+                        if 'origin' in [remote.name for remote in local_repo.remotes]:
+                            # 如果origin已存在，则设置URL
+                            local_repo.remote('origin').set_url(remote_url)
+                        else:
+                            # 创建新的远程引用
+                            local_repo.create_remote('origin', remote_url)
+                        
+                        # 修改远程仓库URL以包含token（用于推送时身份验证）
+                        authenticated_url = remote_url
+                        if platform == "github":
+                            authenticated_url = remote_url.replace('https://', f'https://{account_data["username"]}:{account_data["token"]}@')
+                        elif platform == "gitlab":
+                            authenticated_url = remote_url.replace('https://', f'https://oauth2:{account_data["token"]}@')
+                        elif platform == "gitee":
+                            authenticated_url = remote_url.replace('https://', f'https://{account_data["token"]}@')
+                        
+                        # 推送本地内容到远程仓库
+                        info(f"正在将本地仓库推送至远程: {remote_url}")
+                        local_repo.git.push('--set-upstream', authenticated_url, 'main')
+                        
+                        info(f"成功推送本地仓库至远程仓库: {remote_url}")
+                        return True
+                    except Exception as e:
+                        error(f"无法关联或推送至远程仓库: {str(e)}")
+                        QMessageBox.warning(
+                            self, 
+                            "远程仓库关联警告", 
+                            f"远程仓库已创建，但无法推送本地内容:\n{str(e)}\n\n" +
+                            f"您需要手动执行推送操作。远程仓库URL: {remote_url}"
+                        )
+            except Exception as e:
+                error(f"创建远程仓库时发生错误: {str(e)}")
+                QMessageBox.critical(self, "错误", f"创建远程仓库时发生错误: {str(e)}")
+            return
+        
+        # 如果没有当前登录的账号，提示用户登录
+        reply = QMessageBox.question(
+            self, "未登录账号",
+            "创建远程仓库需要先登录GitHub、GitLab或Gitee账号。\n是否前往账号面板登录？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        
+        if reply == QMessageBox.Yes:
+            # 显示账号面板登录区域
+            info("用户选择登录账号")
+            # 通过点击accountPanel的登录按钮以显示登录菜单
+            self.accountPanel.loginBtn.click()
+            
+            # 提示用户登录后重试
+            QMessageBox.information(
+                self,
+                "登录提示",
+                "请登录账号后，再次尝试创建远程仓库。"
+            )
 
     def refreshStatus(self):
         """ 刷新Git状态 """
@@ -725,19 +921,6 @@ class GitPanel(QWidget):
                 item.setSizeHint(widget.sizeHint())
                 self.changesList.addItem(item)
                 self.changesList.setItemWidget(item, widget)
-                
-            # 获取最近的提交历史
-            commits = self.gitManager.getCommitHistory(5)
-            
-            # 清空历史列表
-            self.historyList.clear()
-            
-            # 添加提交历史到列表
-            for commit in commits:
-                item = QListWidgetItem()
-                item.setText(f"{commit['hash'][:7]} - {commit['message']}")
-                item.setToolTip(f"作者: {commit['author']}\n日期: {commit['date']}\n消息: {commit['message']}")
-                self.historyList.addItem(item)
                 
             # 更新分支下拉框
             self.updateBranchCombo()

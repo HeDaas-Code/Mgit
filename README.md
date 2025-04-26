@@ -8,6 +8,8 @@ MGit是一款基于Python的Markdown笔记应用，结合了直观的编辑体�
 - **Markdown编辑器**：支持实时预览的Markdown编辑器，让写作更加高效
 - **Git集成**：内置Git版本控制，让您轻松追踪笔记的变更历史
 - **多主题支持**：提供浅色和深色主题，适应不同的使用环境
+- **增强的OAuth认证**：优化的GitHub和Gitee OAuth授权流程，保证登录安全与稳定
+- **资源管理优化**：智能的Web资源清理机制，确保应用长时间运行不会内存泄漏
 - **云存储与本地备份**：支持将笔记存储在GitHub等Git服务中，同时保留本地备份
 - **可扩展架构**：基于Python，方便用户根据需求扩展功能
 
@@ -17,6 +19,7 @@ MGit是一款基于Python的Markdown笔记应用，结合了直观的编辑体�
 - PyQt5
 - PyQt-Fluent-Widgets
 - GitPython
+- PyQtWebEngine
 
 ## 使用场景
 
@@ -24,9 +27,11 @@ MGit是一款基于Python的Markdown笔记应用，结合了直观的编辑体�
 - **团队协作**：团队成员可以共同编辑同一份文档，实现高效的协作
 - **项目管理**：用于管理项目文档，跟踪变更，轻松回溯到早期版本
 
-## 安装与使用
+## 文档
 
-请参考[安装指南](./docs/installation.md)开始使用MGit。
+- [安装指南](./docs/installation.md)
+- [OAuth认证指南](./docs/oauth_authentication.md)
+- [更新日志](./CHANGELOG.md)
 
 ## 贡献
 

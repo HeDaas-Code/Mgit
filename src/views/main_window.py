@@ -20,7 +20,6 @@ from src.components.git_panel import GitPanel
 from src.components.status_bar import StatusBar
 from src.utils.git_manager import GitManager
 from src.utils.config_manager import ConfigManager
-from src.components.account_dialog import AccountDialog
 from src.components.log_dialog import LogDialog
 from src.utils.logger import info, warning, error, critical, show_error_message
 
@@ -225,14 +224,6 @@ class MainWindow(QMainWindow):
         
         gitMenu.addSeparator()
         
-        # 添加账号管理菜单项
-        manageAccountsAction = QAction("账号管理", self)
-        manageAccountsAction.setIcon(FluentIcon.PEOPLE.icon())
-        manageAccountsAction.triggered.connect(self.showAccountManager)
-        gitMenu.addAction(manageAccountsAction)
-        
-        gitMenu.addSeparator()
-        
         # 最近仓库子菜单
         self.recentReposMenu = QMenu("最近仓库", self)
         self.recentReposMenu.setIcon(FluentIcon.HISTORY.icon())
@@ -295,12 +286,6 @@ class MainWindow(QMainWindow):
         
         # 工具菜单
         toolsMenu = menuBar.addMenu("工具")
-        
-        # 账号管理
-        accountManagerAction = QAction("账号管理", self)
-        accountManagerAction.setIcon(FluentIcon.PEOPLE.icon())
-        accountManagerAction.triggered.connect(self.showAccountManager)
-        toolsMenu.addAction(accountManagerAction)
         
         # 日志管理
         logManagerAction = QAction("日志管理", self)
@@ -1266,11 +1251,6 @@ class MainWindow(QMainWindow):
         
         # 接受关闭事件
         event.accept() 
-
-    def showAccountManager(self):
-        """ 显示账号管理对话框 """
-        dialog = AccountDialog(self)
-        dialog.exec_() 
 
     def showLogManager(self):
         """ 显示日志管理对话框 """

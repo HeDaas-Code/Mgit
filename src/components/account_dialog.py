@@ -30,8 +30,8 @@ class AccountDialog(QDialog):
         self.accountManager.accountsChanged.connect(self.refreshAccountLists)
         self.oauthHandler.githubAuthSuccess.connect(self.handleGithubOAuthSuccess)
         self.oauthHandler.githubAuthFailed.connect(self.handleOAuthError)
-        self.oauthHandler.gitlabAuthSuccess.connect(self.handleGitlabOAuthSuccess)
-        self.oauthHandler.gitlabAuthFailed.connect(self.handleOAuthError)
+        # self.oauthHandler.gitlabAuthSuccess.connect(self.handleGitlabOAuthSuccess)
+        # self.oauthHandler.gitlabAuthFailed.connect(self.handleOAuthError)
         
     def initUI(self):
         """ 初始化UI """

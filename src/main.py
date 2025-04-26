@@ -90,9 +90,25 @@ def main():
     log_dir = get_log_dir()
     info(f"日志目录: {log_dir}")
     
+    # 预加载QFluentWidgets资源，确保SVG图标可用
+    try:
+        from qfluentwidgets import getIconColor, Theme, FluentIconBase, isDarkTheme
+        from qfluentwidgets import FluentIcon
+        # 预先访问一些图标，确保资源文件被加载
+        icons = [FluentIcon.SETTING, FluentIcon.FOLDER, FluentIcon.SAVE, FluentIcon.DELETE]
+        for icon in icons:
+            icon.path()  # 预加载图标
+        info("QFluentWidgets资源预加载完成")
+    except Exception as e:
+        warning(f"QFluentWidgets资源预加载失败: {str(e)}")
+    
     # 设置应用信息
     QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+    QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)  # 优化WebEngine性能
+    
+    # 引用保持，防止GC
+    global app, w, translator
     
     # 创建应用
     app = QApplication(sys.argv)
@@ -103,6 +119,26 @@ def main():
     # 设置翻译器
     translator = FluentTranslator()
     app.installTranslator(translator)
+    
+    # 设置关闭时清理缓存
+    from PyQt5.QtWebEngineWidgets import QWebEngineProfile
+    profile = QWebEngineProfile.defaultProfile()
+    profile.clearHttpCache()
+    
+    # 延迟导入，避免循环依赖
+    from qfluentwidgets import InfoBar, InfoBarManager
+    # 替换InfoBar管理器的单例模式
+    def safe_close():
+        try:
+            # 安全移除所有InfoBar，避免退出时崩溃
+            for manager in [InfoBarManager.top(), InfoBarManager.bottom(), 
+                           InfoBarManager.left(), InfoBarManager.right()]:
+                manager.closeAllInfoBars()
+        except:
+            pass
+    
+    # 注册退出回调
+    app.aboutToQuit.connect(safe_close)
     
     # 启动主窗口
     info("正在初始化主窗口...")
@@ -117,6 +153,23 @@ def main():
     info("应用程序进入事件循环...")
     # 运行应用
     exit_code = app.exec_()
+    
+    # 明确断开信号连接
+    app.aboutToQuit.disconnect()
+    
+    # 清理全局变量，避免延迟释放
+    info("正在清理资源...")
+    if 'w' in globals():
+        w.deleteLater()
+    
+    # 强制处理待处理的事件
+    app.processEvents()
+    
+    # 标记应用已准备好退出
+    app = None
+    w = None
+    translator = None
+    
     info(f"应用程序结束退出，退出代码: {exit_code}")
     sys.exit(exit_code)
     

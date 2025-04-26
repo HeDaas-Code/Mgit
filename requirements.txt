@@ -1,8 +1,26 @@
+# 核心UI组件
 PyQt5>=5.15.0
 PyQt-Fluent-Widgets>=1.2.0
+pyqtwebengine>=5.15.0
+
+# Git相关
 GitPython>=3.1.0
+PyGithub>=1.55
+
+# Markdown相关
 markdown>=3.3.0
 pygments>=2.7.0
-pyqtwebengine>=5.15.0
+
+# 网络和安全
 requests>=2.25.0
-PyGithub>=1.55 
+urllib3>=1.26.0
+pyopenssl>=23.0.0
+cryptography>=41.0.0
+
+# 两因素验证
+qrcode>=7.3.1
+pillow>=9.0.0
+ntplib>=0.4.0
+
+# 辅助库
+python-dateutil>=2.8.0 
