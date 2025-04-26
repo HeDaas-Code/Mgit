@@ -1,53 +1,53 @@
 @echo off
 echo ========================================
-echo MGit - ´ò°ü½Å±¾
+echo MGit - æ‰“åŒ…è„šæœ¬
 echo ========================================
 echo.
 
-:: ¼ì²éĞéÄâ»·¾³
+:: æ£€æŸ¥è™šæ‹Ÿç¯å¢ƒ
 if not exist venv\Scripts\python.exe (
-    echo ´íÎó: Î´ÕÒµ½ĞéÄâ»·¾³
-    echo ÇëÏÈ´´½¨²¢¼¤»îĞéÄâ»·¾³
+    echo é”™è¯¯: æœªæ‰¾åˆ°è™šæ‹Ÿç¯å¢ƒ
+    echo è¯·å…ˆåˆ›å»ºå¹¶æ¿€æ´»è™šæ‹Ÿç¯å¢ƒ
     exit /b 1
 )
 
-:: ¼ì²éÍ¼±êÎÄ¼ş
+:: æ£€æŸ¥å›¾æ ‡æ–‡ä»¶
 if not exist app.ico (
-    echo ´íÎó: Î´ÕÒµ½Ó¦ÓÃÍ¼±ê app.ico
+    echo é”™è¯¯: æœªæ‰¾åˆ°åº”ç”¨å›¾æ ‡ app.ico
     exit /b 1
 )
 
-:: ¼ì²éÊÇ·ñÒÑ°²×°PyInstaller
+:: æ£€æŸ¥æ˜¯å¦å·²å®‰è£…PyInstaller
 if not exist venv\Scripts\pyinstaller.exe (
-    echo ÕıÔÚ°²×°PyInstaller...
+    echo æ­£åœ¨å®‰è£…PyInstaller...
     venv\Scripts\pip.exe install pyinstaller
 )
 
-:: ÇåÀí¾ÉµÄ¹¹½¨²úÎï
+:: æ¸…ç†æ—§çš„æ„å»ºäº§ç‰©
 if exist build (
-    echo ÕıÔÚÇåÀí¾ÉµÄbuildÄ¿Â¼...
+    echo æ­£åœ¨æ¸…ç†æ—§çš„buildç›®å½•...
     rmdir /s /q build
 )
 if exist dist (
-    echo ÕıÔÚÇåÀí¾ÉµÄdistÄ¿Â¼...
+    echo æ­£åœ¨æ¸…ç†æ—§çš„distç›®å½•...
     rmdir /s /q dist
 )
 
-:: Ö´ĞĞ´ò°ü
+:: æ‰§è¡Œæ‰“åŒ…
 echo.
-echo ÕıÔÚ´ò°üÓ¦ÓÃ...
+echo æ­£åœ¨æ‰“åŒ…åº”ç”¨...
 venv\Scripts\pyinstaller.exe --clean MGit.spec
 
-:: ¼ì²é½á¹û
+:: æ£€æŸ¥ç»“æœ
 if not exist dist\MGit.exe (
     echo.
-    echo ´ò°üÊ§°Ü!
+    echo æ‰“åŒ…å¤±è´¥!
     exit /b 1
 )
 
 echo.
 echo ========================================
-echo ´ò°ü³É¹¦! Éú³ÉÎÄ¼ş: dist\MGit.exe
+echo æ‰“åŒ…æˆåŠŸ! ç”Ÿæˆæ–‡ä»¶: dist\MGit.exe
 echo ========================================
 
 exit /b 0 

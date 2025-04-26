@@ -12,8 +12,8 @@ import time
 import ssl
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-from PyQt5.QtCore import QObject, pyqtSignal, QUrl, QTimer, QUrlQuery
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QProgressBar, QMessageBox
+from PyQt5.QtCore import QObject, pyqtSignal, QUrl, QTimer, QUrlQuery, Qt, QEvent
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QProgressBar, QMessageBox, QApplication, qApp
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile, QWebEnginePage, QWebEngineCertificateError
 from qfluentwidgets import InfoBar, InfoBarPosition
 from datetime import datetime
@@ -31,10 +31,57 @@ def resource_path(relative_path):
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
 
+# 全局引用，避免资源被过早回收
+_browser_dialogs = []
+_is_app_exiting = False
+
+# 应用退出监测函数
+def check_app_exiting(exit_callback=None):
+    """检查应用是否正在退出，并在应用退出时执行回调"""
+    global _is_app_exiting
+    
+    if _is_app_exiting:
+        return True
+        
+    # 获取主窗口列表
+    windows = QApplication.topLevelWidgets()
+    active_windows = [w for w in windows if w.isVisible() and not isinstance(w, QDialog)]
+    
+    # 如果没有活跃的主窗口，认为应用正在退出
+    if not active_windows:
+        info("检测到应用正在退出，执行最终资源清理")
+        _is_app_exiting = True
+        if exit_callback:
+            try:
+                exit_callback()
+            except Exception as e:
+                error(f"执行退出回调时出错: {str(e)}")
+        return True
+    
+    return False
+
 # 注册应用退出时的全局资源清理
 def cleanup_web_resources():
     """全局WebEngine资源清理函数，确保在应用退出时释放所有WebEngine资源"""
+    global _browser_dialogs, _is_app_exiting
+    
+    # 标记应用正在退出
+    _is_app_exiting = True
+    
     info("正在清理全局WebEngine资源...")
+    
+    # 清理所有保存的浏览器对话框
+    for dialog_ref in _browser_dialogs[:]:
+        try:
+            dialog = dialog_ref()
+            if dialog and hasattr(dialog, 'cleanupWebResources'):
+                info("清理保存的浏览器对话框资源")
+                dialog.cleanupWebResources()
+        except Exception as e:
+            error(f"清理保存的浏览器对话框时出错: {str(e)}")
+    
+    # 清空引用列表
+    _browser_dialogs.clear()
     
     try:
         # 强制清理所有QWebEngineProfile
@@ -228,11 +275,27 @@ class OAuthWebEnginePage(QWebEnginePage):
     
     def certificateError(self, error):
         """处理证书错误，对于本地连接始终接受"""
-        # 对于localhost始终接受证书
-        if "localhost" in error.url().host() or "127.0.0.1" in error.url().host():
-            error.ignoreCertificateError()
+        try:
+            # 对于localhost始终接受证书
+            if "localhost" in error.url().host() or "127.0.0.1" in error.url().host():
+                error.ignoreCertificateError()
+                return True
+            return super().certificateError(error)
+        except Exception as e:
+            error(f"证书错误处理失败: {str(e)}")
+            # 默认接受证书错误，避免阻断流程
+            try:
+                error.ignoreCertificateError()
+            except:
+                pass
             return True
-        return super().certificateError(error)
+            
+    def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
+        """处理来自网页的JavaScript控制台消息"""
+        # 使用数值比较而不是常量名称，避免版本兼容性问题
+        # 根据PyQt文档，警告级别通常是1
+        if level >= 1:  # 0:Info, 1:Warning, 2:Error
+            debug(f"WebEngine JavaScript [Level {level}] ({sourceID}:{lineNumber}): {message}")
 
 class OAuthHandler(QObject):
     """OAuth授权流程处理器"""
@@ -529,27 +592,35 @@ class OAuthHandler(QObject):
         """对话框关闭时的清理函数"""
         info("OAuth浏览器对话框已关闭")
         
-        if self.browser_dialog:
-            # 主动调用清理方法
-            try:
-                if hasattr(self.browser_dialog, 'cleanupWebResources'):
-                    self.browser_dialog.cleanupWebResources()
-            except Exception as e:
-                error(f"清理OAuth浏览器资源时出错: {str(e)}")
-                
-            # 确保对话框被标记为已清理
-            try:
-                # 尝试销毁对话框
-                self.browser_dialog.deleteLater()
-            except Exception as e:
-                error(f"销毁OAuth浏览器对话框时出错: {str(e)}")
-                
-        # 最后将引用设为None，释放对象
+        # 解除对对话框的引用，但不尝试主动清理资源
+        # 对话框自己会负责在合适的时机清理资源
+        dialog = self.browser_dialog
         self.browser_dialog = None
         
-        # 强制垃圾回收
-        import gc
-        gc.collect()
+        # 检查应用是否正在退出
+        if check_app_exiting() and dialog and hasattr(dialog, 'cleanupWebResources'):
+            # 应用退出时进行清理
+            try:
+                info("应用正在退出，清理OAuth浏览器资源")
+                dialog.cleanupWebResources()
+            except Exception as e:
+                error(f"清理OAuth浏览器资源时出错: {str(e)}")
+        
+        # 最后确保对OAuth服务器的清理
+        try:
+            # 延迟停止服务器
+            def delayed_stop():
+                try:
+                    self.stop_server()
+                except:
+                    pass
+            
+            # 10秒后停止服务器
+            timer = threading.Timer(10.0, delayed_stop)
+            timer.daemon = True
+            timer.start()
+        except:
+            pass
         
 class OAuthBrowserDialog(QDialog):
     """内置浏览器的OAuth授权对话框"""
@@ -564,11 +635,32 @@ class OAuthBrowserDialog(QDialog):
         self.provider_type = provider_type
         self.redirect_uri_base = redirect_uri_base
         self.auth_completed = False  # 标记授权是否已完成
+        self.cleanup_done = False    # 标记清理是否已完成
+        self.cleanup_delayed = False # 标记是否已安排延迟清理
         self.webView = None  # 初始化webView为None
         self.webPage = None  # 初始化webPage为None
         self.profile = None  # 初始化profile为None
-        self.initUI()
+        self.main_parent = parent    # 保存主窗口引用
         
+        # 设置窗口标志
+        self.setAttribute(Qt.WA_DeleteOnClose, False)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        
+        # 将自己加入全局引用列表，避免过早回收
+        global _browser_dialogs
+        import weakref
+        _browser_dialogs.append(weakref.ref(self))
+        
+        # 初始化UI
+        try:
+            self.initUI()
+        except Exception as e:
+            error(f"初始化OAuth浏览器对话框失败: {str(e)}")
+            # 确保在初始化失败时也能发送信号
+            self.authFailed.emit(f"初始化授权对话框失败: {str(e)}")
+            # 安排对话框延迟关闭
+            QTimer.singleShot(100, self.close)
+
     def initUI(self):
         """初始化UI"""
         # 设置窗口标题
@@ -580,300 +672,524 @@ class OAuthBrowserDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # 创建自定义Profile和Page以禁用安全警告
-        self.profile = QWebEngineProfile("OAuthProfile", self)
-        self.profile.setPersistentCookiesPolicy(QWebEngineProfile.NoPersistentCookies)
-        
-        # 使用自定义Page类，以便覆盖certificateError方法
-        self.webPage = OAuthWebEnginePage(self.profile, self)
-        
-        # 添加Web视图
-        self.webView = QWebEngineView()
-        self.webView.setPage(self.webPage)
-        
-        self.webView.loadStarted.connect(self.onLoadStarted)
-        self.webView.loadProgress.connect(self.onLoadProgress)
-        self.webView.loadFinished.connect(self.onLoadFinished)
-        self.webView.urlChanged.connect(self._check_redirect)
-        layout.addWidget(self.webView)
-        
-        # 添加进度条
-        self.progressBar = QProgressBar()
-        self.progressBar.setRange(0, 100)
-        self.progressBar.setValue(0)
-        layout.addWidget(self.progressBar)
-        
-        # 底部按钮区域
-        btnLayout = QHBoxLayout()
-        
-        self.cancelBtn = QPushButton("取消")
-        self.cancelBtn.clicked.connect(self.reject)
-        btnLayout.addWidget(self.cancelBtn)
-        
-        layout.addLayout(btnLayout)
-        
-        # 加载URL
-        self.webView.load(QUrl(self.auth_url))
+        try:
+            # 创建自定义Profile和Page以禁用安全警告
+            self.profile = QWebEngineProfile(f"OAuthProfile-{id(self)}", self)
+            self.profile.setPersistentCookiesPolicy(QWebEngineProfile.NoPersistentCookies)
+            
+            # 使用自定义Page类，以便覆盖certificateError方法
+            self.webPage = OAuthWebEnginePage(self.profile, self)
+            
+            # 添加Web视图
+            self.webView = QWebEngineView(self)  # 确保有明确的父对象
+            self.webView.setPage(self.webPage)
+            
+            # 使用try-except包装每个信号连接，以便在失败时能够继续
+            try:
+                self.webView.loadStarted.connect(self.onLoadStarted)
+            except Exception as e:
+                error(f"连接loadStarted信号失败: {str(e)}")
+                
+            try:
+                self.webView.loadProgress.connect(self.onLoadProgress)
+            except Exception as e:
+                error(f"连接loadProgress信号失败: {str(e)}")
+                
+            try:
+                self.webView.loadFinished.connect(self.onLoadFinished)
+            except Exception as e:
+                error(f"连接loadFinished信号失败: {str(e)}")
+                
+            try:
+                self.webView.urlChanged.connect(self._check_redirect)
+            except Exception as e:
+                error(f"连接urlChanged信号失败: {str(e)}")
+                
+            layout.addWidget(self.webView)
+            
+            # 添加进度条
+            self.progressBar = QProgressBar(self)  # 确保有明确的父对象
+            self.progressBar.setRange(0, 100)
+            self.progressBar.setValue(0)
+            layout.addWidget(self.progressBar)
+            
+            # 底部按钮区域
+            btnLayout = QHBoxLayout()
+            
+            self.cancelBtn = QPushButton("取消", self)  # 确保有明确的父对象
+            self.cancelBtn.clicked.connect(self.safeReject)
+            btnLayout.addWidget(self.cancelBtn)
+            
+            layout.addLayout(btnLayout)
+            
+            # 加载URL
+            try:
+                self.webView.load(QUrl(self.auth_url))
+            except Exception as e:
+                error(f"加载OAuth URL失败: {str(e)}")
+                self.authFailed.emit(f"加载授权页面失败: {str(e)}")
+                QTimer.singleShot(1000, self.safeReject)
+                
+        except Exception as e:
+            error(f"初始化OAuth浏览器界面失败: {str(e)}")
+            self.authFailed.emit(f"初始化授权界面失败: {str(e)}")
+            QTimer.singleShot(1000, self.safeReject)
         
     def closeEvent(self, event):
         """对话框关闭事件"""
         info("OAuth浏览器对话框关闭中...")
         
-        # 先停止所有网络请求和页面加载
-        if self.webView:
-            self.webView.stop()
+        # 先停止加载以避免额外网络请求
+        if hasattr(self, 'webView') and self.webView:
+            try:
+                self.webView.stop()
+            except:
+                pass
+        
+        # 标记为已完成，避免后续URL处理
+        self.auth_completed = True
+        
+        # 检查应用是否正在退出
+        if check_app_exiting():
+            # 如果应用正在退出，立即清理资源
+            info("检测到应用退出，立即清理资源")
+            self.cleanupWebResources()
+        else:
+            # 如果应用仍在运行，不立即清理，而是安排延迟清理
+            if not self.cleanup_delayed:
+                info("应用仍在运行，安排延迟资源清理")
+                self.cleanup_delayed = True
+                # 使用更长的延迟时间，避免过早清理
+                QTimer.singleShot(2000, self.check_and_cleanup)
+        
+        # 接受关闭事件
+        event.accept()
+        
+    def check_and_cleanup(self):
+        """检查应用状态并决定是否清理资源"""
+        # 如果已经清理过，直接返回
+        if self.cleanup_done:
+            return
             
-        # 清理所有WebEngine资源
-        self.cleanupWebResources()
+        # 检查应用是否仍在运行
+        if check_app_exiting():
+            # 如果应用正在退出，立即清理资源
+            info("延迟检测到应用退出，执行资源清理")
+            self.cleanupWebResources()
+        else:
+            # 应用仍在运行，将资源清理推迟
+            # 只在第一次推迟时输出日志，避免频繁日志
+            if not hasattr(self, '_cleanup_postponed'):
+                info("应用仍在运行，资源清理将在应用退出前执行")
+                self._cleanup_postponed = True
+                
+            # 使用弱引用检查主窗口状态
+            import weakref
+            if self.main_parent and isinstance(self.main_parent, QObject):
+                parent_ref = weakref.ref(self.main_parent)
+                parent = parent_ref()
+                if parent and parent.isVisible():
+                    # 主窗口仍然可见，继续推迟清理，但不再输出日志
+                    QTimer.singleShot(30000, self.check_and_cleanup)  # 延长检查间隔到30秒
+                else:
+                    # 主窗口不可见，执行清理
+                    info("检测到主窗口不可见，执行资源清理")
+                    self.cleanupWebResources()
+            else:
+                # 无法确定主窗口状态，保守地推迟清理，但不再输出日志
+                QTimer.singleShot(30000, self.check_and_cleanup)  # 延长检查间隔到30秒
         
-        # 继续原有的关闭事件
-        super().closeEvent(event)
+    def finalize(self):
+        """在UI线程中执行的最终清理，与closeEvent分离以避免崩溃"""
+        info("OAuth浏览器对话框进行最终清理...")
         
-        # 确保reject信号被发送
-        self.reject()
+        # 检查应用是否正在退出
+        if check_app_exiting():
+            # 如果应用正在退出，立即清理资源
+            try:
+                self.cleanupWebResources()
+            except Exception as e:
+                error(f"清理资源时发生错误: {str(e)}")
+        else:
+            # 应用仍在运行，不立即清理资源
+            if not self.cleanup_delayed:
+                info("应用仍在运行，安排延迟资源清理")
+                self.cleanup_delayed = True
+                QTimer.singleShot(2000, self.check_and_cleanup)
+            
+        # 发出可能的取消信号
+        if not self.auth_completed:
+            try:
+                self.authFailed.emit("用户取消了授权")
+            except:
+                pass
+                
+        # 从全局引用列表中移除自己
+        global _browser_dialogs
+        import weakref
+        for i, ref in enumerate(_browser_dialogs[:]):
+            if ref() is self:
+                try:
+                    _browser_dialogs.pop(i)
+                except:
+                    pass
+                break
+                
+        # 确保deleteLater被调用，但不立即执行（让Qt事件循环来处理）
+        try:
+            self.deleteLater()
+        except:
+            pass
         
     def cleanupWebResources(self):
-        """清理WebEngine相关资源，避免资源泄漏"""
-        info("正在清理WebEngine资源...")
+        """安全地清理WebEngine相关资源，只在应用退出或明确需要时执行"""
+        # 如果已经清理过，直接返回
+        if self.cleanup_done:
+            return
+            
+        info("正在安全清理WebEngine资源...")
         
-        try:
-            if self.webView:
-                # 停止加载并断开所有信号连接
+        # 标记已清理，避免重复清理
+        self.cleanup_done = True
+        
+        # 首先断开所有信号，防止异步调用
+        if hasattr(self, 'webView') and self.webView:
+            try:
+                # 停止任何正在进行的加载
                 self.webView.stop()
                 
+                # 确保当前页面是空白页，减少资源占用
                 try:
-                    # 安全断开信号连接
-                    self.webView.loadStarted.disconnect()
-                    self.webView.loadProgress.disconnect()
-                    self.webView.loadFinished.disconnect()
-                    self.webView.urlChanged.disconnect()
-                except (TypeError, RuntimeError):
-                    # 如果断开失败，可能是因为信号没有连接或其他运行时错误
+                    self.webView.setHtml("<html><body></body></html>")
+                except:
                     pass
-                
-                # 清除页面内容
-                self.webView.setHtml("")
-                
-                # 先将页面设为空，然后再删除页面对象
-                if self.webPage:
-                    # 保存对页面的引用
-                    page_to_delete = self.webPage
-                    # 在删除页面前先将webView的页面设为None
-                    self.webView.setPage(None)
-                    # 延迟删除页面
-                    page_to_delete.deleteLater()
+                    
+                # 断开所有信号连接
+                try:
+                    self.webView.loadStarted.disconnect()
+                except:
+                    pass
+                try:
+                    self.webView.loadProgress.disconnect()
+                except:
+                    pass
+                try:
+                    self.webView.loadFinished.disconnect()
+                except:
+                    pass
+                try:
+                    self.webView.urlChanged.disconnect()
+                except:
+                    pass
+            except Exception as e:
+                error(f"断开WebView信号时出错: {str(e)}")
+        
+        # 清理网页和配置文件
+        try:
+            # 删除页面对象
+            if hasattr(self, 'webPage') and self.webPage:
+                try:
+                    if hasattr(self, 'webView') and self.webView:
+                        self.webView.setPage(None)
+                    self.webPage.deleteLater()
                     self.webPage = None
-                
-                # 从布局中移除webView
-                if self.webView.parent():
+                except Exception as e:
+                    error(f"删除WebPage时出错: {str(e)}")
+            
+            # 清理配置文件资源
+            if hasattr(self, 'profile') and self.profile:
+                try:
+                    if hasattr(self.profile, 'clearHttpCache'):
+                        self.profile.clearHttpCache()
+                    
+                    if hasattr(self.profile, 'cookieStore'):
+                        try:
+                            store = self.profile.cookieStore()
+                            if store:
+                                store.deleteAllCookies()
+                        except:
+                            pass
+                            
                     try:
-                        self.webView.parent().layout().removeWidget(self.webView)
+                        self.profile.clearAllVisitedLinks()
                     except:
                         pass
-                
-                # 设置webView的父对象为None，确保其被正确删除
-                self.webView.setParent(None)
-                
-                # 安排延迟删除webView
-                self.webView.deleteLater()
-                self.webView = None
-            
-            # 显式清理profile
-            if self.profile:
-                # 先清理缓存
-                if hasattr(self.profile, 'clearHttpCache'):
-                    self.profile.clearHttpCache()
-                
-                # 清除所有cookies
-                if hasattr(self.profile, 'cookieStore'):
-                    cookieStore = self.profile.cookieStore()
-                    if cookieStore:
-                        cookieStore.deleteAllCookies()
-                
-                # 清理缓存的数据
-                self.profile.clearAllVisitedLinks()
-                
-                # 延迟删除profile
-                self.profile.deleteLater()
-                self.profile = None
-                
+                        
+                    # 使用deleteLater
+                    self.profile.deleteLater()
+                    self.profile = None
+                except Exception as e:
+                    error(f"清理WebEngineProfile时出错: {str(e)}")
         except Exception as e:
-            error(f"清理WebEngine资源时发生错误: {str(e)}")
-        finally:
-            # 强制垃圾回收
-            import gc
-            gc.collect()
+            error(f"清理Web资源时出错: {str(e)}")
+        
+        # 清理UI组件
+        try:
+            # 移除webView
+            if hasattr(self, 'webView') and self.webView:
+                try:
+                    layout = self.layout()
+                    if layout:
+                        layout.removeWidget(self.webView)
+                    self.webView.deleteLater()
+                    self.webView = None
+                except Exception as e:
+                    error(f"移除WebView时出错: {str(e)}")
+        except Exception as e:
+            error(f"清理UI组件时出错: {str(e)}")
+        
+    def safeReject(self):
+        """安全地取消对话框"""
+        info("OAuth登录被用户取消")
+        
+        # 先设置已完成标志，避免进一步的URL处理
+        self.auth_completed = True
+        
+        # 不立即清理资源，在对话框关闭后会自动清理
+        self.close()
         
     def reject(self):
-        """用户取消对话框"""
-        info("OAuth登录被用户取消")
-        self.cleanupWebResources()
-        super().reject()
+        """用户取消对话框，优先使用安全方法"""
+        info("OAuth对话框被拒绝")
+        self.safeReject()
         
     def accept(self):
-        """用户接受对话框"""
-        info("OAuth登录完成")
-        self.cleanupWebResources()
-        super().accept()
+        """用户接受对话框，确保安全关闭"""
+        info("OAuth登录完成，安全关闭对话框")
+        
+        # 先设置已完成标志
+        self.auth_completed = True
+        
+        # 不立即清理资源，在对话框关闭后会自动清理
+        self.close()
         
     def onLoadStarted(self):
         """页面开始加载"""
-        self.progressBar.setValue(0)
-        self.progressBar.show()
+        # 如果已完成授权，忽略后续加载
+        if self.auth_completed:
+            return
+            
+        try:
+            self.progressBar.setValue(0)
+            self.progressBar.show()
+        except:
+            pass
         
     def onLoadProgress(self, progress):
         """页面加载进度更新"""
-        self.progressBar.setValue(progress)
+        # 如果已完成授权，忽略后续进度
+        if self.auth_completed:
+            return
+            
+        try:
+            self.progressBar.setValue(progress)
+        except:
+            pass
         
     def onLoadFinished(self, success):
         """页面加载完成"""
-        if success:
-            self.progressBar.setValue(100)
-            # 隐藏进度条
-            QTimer.singleShot(500, self.progressBar.hide)
+        # 如果已完成授权，忽略后续加载完成事件
+        if self.auth_completed:
+            return
             
-            # 检查当前URL是否匹配重定向URL模式，如果是则处理授权码
-            current_url = self.webView.url().toString()
-            if current_url.startswith(self.redirect_uri_base):
-                self._check_redirect(QUrl(current_url))
-        else:
-            # 如果授权已完成，忽略后续错误
-            if self.auth_completed:
-                return
+        try:
+            if success:
+                self.progressBar.setValue(100)
+                # 隐藏进度条
+                try:
+                    QTimer.singleShot(500, self.progressBar.hide)
+                except:
+                    pass
                 
-            self.progressBar.setValue(0)
-            # 显示加载失败的提示，但不立即关闭对话框
-            current_url = self.webView.url().toString()
-            
-            # 如果当前URL是回调URL，不显示错误（可能是正常的授权完成后的跳转）
-            if current_url.startswith(self.redirect_uri_base):
-                return
-                
-            # 标记授权已失败
-            self.auth_completed = True
-                
-            error_html = f'''
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <title>页面加载失败</title>
-                <style>
-                    body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
-                    h1 {{ color: #cb2431; }}
-                    p {{ font-size: 16px; }}
-                </style>
-            </head>
-            <body>
-                <h1>页面加载失败</h1>
-                <p>无法加载页面: {current_url}</p>
-                <p>请检查您的网络连接，然后重试。</p>
-                <button onclick="window.close()">关闭</button>
-            </body>
-            </html>
-            '''
-            self.webView.setHtml(error_html)
-            # 发出失败信号，但延迟处理以便用户看到错误页面
-            QTimer.singleShot(3000, lambda: self.authFailed.emit("页面加载失败"))
+                # 检查当前URL是否匹配重定向URL模式
+                try:
+                    current_url = self.webView.url().toString()
+                    if current_url.startswith(self.redirect_uri_base):
+                        self._check_redirect(QUrl(current_url))
+                except:
+                    pass
+            else:
+                try:
+                    self.progressBar.setValue(0)
+                except:
+                    pass
+                    
+                try:
+                    # 显示加载失败的提示
+                    current_url = self.webView.url().toString()
+                    
+                    # 如果当前URL是回调URL，不显示错误（可能是正常的授权完成后的跳转）
+                    if current_url.startswith(self.redirect_uri_base):
+                        return
+                        
+                    # 标记授权已失败
+                    self.auth_completed = True
+                    
+                    error_html = f'''
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="utf-8">
+                        <title>页面加载失败</title>
+                        <style>
+                            body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+                            h1 {{ color: #cb2431; }}
+                            p {{ font-size: 16px; }}
+                        </style>
+                    </head>
+                    <body>
+                        <h1>页面加载失败</h1>
+                        <p>无法加载页面: {current_url}</p>
+                        <p>请检查您的网络连接，然后重试。</p>
+                        <button onclick="window.close()">关闭</button>
+                    </body>
+                    </html>
+                    '''
+                    self.webView.setHtml(error_html)
+                    
+                    # 发出失败信号，延迟处理以便用户看到错误页面
+                    try:
+                        QTimer.singleShot(3000, lambda: self.authFailed.emit("页面加载失败"))
+                    except:
+                        # 直接发出信号
+                        self.authFailed.emit("页面加载失败")
+                except Exception as e:
+                    error(f"处理页面加载失败事件时出错: {str(e)}")
+                    try:
+                        self.authFailed.emit("页面加载过程中出错")
+                    except:
+                        pass
+                    self.safeReject()
+        except Exception as e:
+            error(f"onLoadFinished处理失败: {str(e)}")
+            try:
+                self.authFailed.emit(f"页面加载完成处理失败: {str(e)}")
+            except:
+                pass
+            self.safeReject()
             
     def _check_redirect(self, url):
         """检查URL是否是回调URL，并获取授权码"""
-        # 仅当URL字符串以预期回调URI开头时才处理
-        url_str = url.toString()
-        
-        if not url_str.startswith(self.redirect_uri_base):
+        # 如果已完成授权，忽略后续重定向
+        if self.auth_completed:
             return
             
-        info(f"检测到OAuth重定向URL: {url_str}")
-        
-        # 提取查询参数
-        query = QUrlQuery(url.query())
-        
-        # 检查是否授权成功
-        if query.hasQueryItem("code"):
-            # 获取授权码
-            code = query.queryItemValue("code")
-            info(f"获取到OAuth授权码: {code[:4]}***")
+        try:
+            # 仅当URL字符串以预期回调URI开头时才处理
+            url_str = url.toString()
             
-            # 标记授权已完成
-            self.auth_completed = True
+            if not url_str.startswith(self.redirect_uri_base):
+                return
+                
+            info(f"检测到OAuth重定向URL: {url_str}")
             
-            # 发送成功信号
-            self.authSuccess.emit(code)
+            # 提取查询参数
+            query = QUrlQuery(url.query())
             
-            # 给用户一个成功的反馈
-            success_html = f'''
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <title>授权成功</title>
-                <style>
-                    body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
-                    h1 {{ color: #28a745; }}
-                    p {{ font-size: 16px; }}
-                </style>
-            </head>
-            <body>
-                <h1>授权成功</h1>
-                <p>您已成功授权应用访问您的账户。</p>
-                <p>窗口将在几秒后自动关闭...</p>
-                <script>
-                    setTimeout(function() {{
-                        window.close();
-                    }}, 1500);
-                </script>
-            </body>
-            </html>
-            '''
+            # 检查是否授权成功
+            if query.hasQueryItem("code"):
+                # 获取授权码
+                code = query.queryItemValue("code")
+                info(f"获取到OAuth授权码: {code[:4] if len(code) > 4 else '****'}***")
+                
+                # 标记授权已完成
+                self.auth_completed = True
+                
+                # 发送成功信号
+                try:
+                    self.authSuccess.emit(code)
+                except Exception as e:
+                    error(f"发送授权成功信号失败: {str(e)}")
+                
+                # 给用户一个成功的反馈
+                success_html = f'''
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <title>授权成功</title>
+                    <style>
+                        body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+                        h1 {{ color: #28a745; }}
+                        p {{ font-size: 16px; }}
+                    </style>
+                </head>
+                <body>
+                    <h1>授权成功</h1>
+                    <p>您已成功授权应用访问您的账户。</p>
+                    <p>窗口将在几秒后自动关闭...</p>
+                </body>
+                </html>
+                '''
+                
+                try:
+                    self.webView.setHtml(success_html)
+                except:
+                    pass
+                
+                # 延迟关闭对话框
+                try:
+                    QTimer.singleShot(1500, self.accept)
+                except:
+                    # 如果定时器设置失败，立即调用accept
+                    self.accept()
             
-            self.webView.setHtml(success_html)
-            
-            # 延迟关闭对话框
-            QTimer.singleShot(1500, self.accept)
-        
-        # 检查是否授权失败
-        elif query.hasQueryItem("error"):
-            # 获取错误信息
-            error_code = query.queryItemValue("error")
-            error_description = query.queryItemValue("error_description") if query.hasQueryItem("error_description") else "未知错误"
-            
-            error_msg = f"{error_code}: {error_description}"
-            error(f"OAuth授权失败: {error_msg}")
-            
-            # 标记授权已完成
-            self.auth_completed = True
-            
-            # 发送失败信号
-            self.authFailed.emit(error_msg)
-            
-            # 给用户一个错误反馈
-            error_html = f'''
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <title>授权失败</title>
-                <style>
-                    body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
-                    h1 {{ color: #cb2431; }}
-                    p {{ font-size: 16px; }}
-                </style>
-            </head>
-            <body>
-                <h1>授权失败</h1>
-                <p>错误信息: {error_msg}</p>
-                <p>窗口将在几秒后自动关闭...</p>
-                <script>
-                    setTimeout(function() {{
-                        window.close();
-                    }}, 3000);
-                </script>
-            </body>
-            </html>
-            '''
-            
-            self.webView.setHtml(error_html)
-            
-            # 延迟关闭对话框
-            QTimer.singleShot(3000, self.reject) 
+            # 检查是否授权失败
+            elif query.hasQueryItem("error"):
+                # 获取错误信息
+                try:
+                    error_code = query.queryItemValue("error")
+                    error_description = query.queryItemValue("error_description") if query.hasQueryItem("error_description") else "未知错误"
+                    
+                    error_msg = f"{error_code}: {error_description}"
+                    error(f"OAuth授权失败: {error_msg}")
+                    
+                    # 标记授权已完成
+                    self.auth_completed = True
+                    
+                    # 发送失败信号
+                    self.authFailed.emit(error_msg)
+                    
+                    # 给用户一个错误反馈
+                    error_html = f'''
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="utf-8">
+                        <title>授权失败</title>
+                        <style>
+                            body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+                            h1 {{ color: #cb2431; }}
+                            p {{ font-size: 16px; }}
+                        </style>
+                    </head>
+                    <body>
+                        <h1>授权失败</h1>
+                        <p>错误信息: {error_msg}</p>
+                        <p>窗口将在几秒后自动关闭...</p>
+                    </body>
+                    </html>
+                    '''
+                    
+                    self.webView.setHtml(error_html)
+                    
+                    # 延迟关闭对话框
+                    QTimer.singleShot(3000, self.safeReject)
+                except Exception as e:
+                    error(f"处理OAuth错误回调时出错: {str(e)}")
+                    # 直接发送失败信号并关闭窗口
+                    try:
+                        self.authFailed.emit("处理授权错误时出现问题")
+                    except:
+                        pass
+                    self.safeReject()
+            else:
+                # 没有授权码或错误，但是URL符合回调格式，可能是其他情况
+                info(f"收到未预期的OAuth回调URL: {url_str}")
+        except Exception as e:
+            error(f"_check_redirect处理失败: {str(e)}")
+            try:
+                self.authFailed.emit(f"处理授权回调失败: {str(e)}")
+            except:
+                pass
+            self.safeReject() 

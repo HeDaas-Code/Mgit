@@ -8,6 +8,30 @@ MGit - Markdown笔记与Git版本控制
 
 import sys
 import os
+
+# 在创建QApplication前初始化WebEngine
+if True:  # 使用if块避免导入污染全局命名空间
+    # 设置WebEngine相关环境变量
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --no-sandbox --disable-dev-shm-usage"
+    os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = "0"
+    
+    # 预先导入Qt模块并设置属性
+    try:
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtWidgets import QApplication
+        
+        # 必须在QApplication创建前设置这些属性
+        QApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
+        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+        
+        # 预先导入WebEngine模块
+        import PyQt5.QtWebEngineWidgets
+    except ImportError as e:
+        print(f"警告: WebEngine模块导入失败 - {str(e)}")
+    except Exception as e:
+        print(f"警告: WebEngine初始化失败 - {str(e)}")
+
 import subprocess
 import platform
 import time
