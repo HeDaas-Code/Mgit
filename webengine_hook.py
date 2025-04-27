@@ -6,7 +6,7 @@ print("WebEngine钩子脚本开始执行...")
 
 # 设置WebEngine环境变量（这必须在任何PyQt导入前设置）
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --no-sandbox --disable-dev-shm-usage"
-os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = "0"
+os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = ""
 os.environ["QTWEBENGINE_DISK_CACHE_MAX_SIZE"] = "10485760"  # 限制磁盘缓存大小为10MB
 
 # 阻止WebEngine创建太多线程

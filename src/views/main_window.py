@@ -23,6 +23,10 @@ from src.utils.config_manager import ConfigManager
 from src.components.log_dialog import LogDialog
 from src.utils.logger import info, warning, error, critical, show_error_message
 
+# 导入插件管理器
+from src.utils.plugin_manager import init_plugin_manager, get_plugin_manager
+from src.components.plugin_settings import PluginManager as PluginManagerWidget
+
 class MainWindow(QMainWindow):
     """ 主窗口类 """
     
@@ -33,6 +37,9 @@ class MainWindow(QMainWindow):
         
         # 初始化配置管理器
         self.configManager = ConfigManager()
+        
+        # 初始化插件管理器
+        self.pluginManager = init_plugin_manager(self)
         
         # 初始化Git管理器为None
         self.gitManager = None
@@ -79,6 +86,25 @@ class MainWindow(QMainWindow):
         
         # 检查自动保存恢复
         QTimer.singleShot(500, self.checkAutoSaveRecovery)
+        
+        # 加载插件
+        self._loadPlugins()
+        
+    def _loadPlugins(self):
+        """加载插件系统"""
+        info("开始加载插件系统...")
+        try:
+            # 加载所有插件
+            self.pluginManager.load_all_plugins()
+            
+            # 触发应用初始化事件，通知插件
+            self.pluginManager.trigger_event('app_initialized', self)
+            
+            info("插件系统加载完成")
+        except Exception as e:
+            error(f"加载插件系统时出错: {str(e)}")
+            import traceback
+            error(traceback.format_exc())
         
     def initUI(self):
         """ 初始化用户界面 """
@@ -238,6 +264,31 @@ class MainWindow(QMainWindow):
         # 更新最近仓库列表
         self.updateRecentRepositoriesMenu()
         
+        # 插件菜单
+        pluginsMenu = menuBar.addMenu("插件")
+        
+        # 插件管理动作
+        managePluginsAction = QAction("插件管理", self)
+        managePluginsAction.setIcon(FluentIcon.SETTING.icon())
+        managePluginsAction.triggered.connect(self.showPluginManager)
+        pluginsMenu.addAction(managePluginsAction)
+        
+        # 刷新插件动作
+        refreshPluginsAction = QAction("刷新插件", self)
+        refreshPluginsAction.setIcon(FluentIcon.SYNC.icon())
+        refreshPluginsAction.triggered.connect(self.refreshPlugins)
+        pluginsMenu.addAction(refreshPluginsAction)
+        
+        pluginsMenu.addSeparator()
+        
+        # 插件子菜单 - 将在插件加载后更新
+        self.pluginsSubMenu = QMenu("已安装插件", self)
+        self.pluginsSubMenu.setIcon(FluentIcon.LIBRARY.icon())
+        pluginsMenu.addMenu(self.pluginsSubMenu)
+        
+        # 在插件加载后更新插件菜单
+        QTimer.singleShot(1000, self.updatePluginsMenu)
+        
         # 设置菜单
         settingsMenu = menuBar.addMenu("设置")
         
@@ -253,17 +304,16 @@ class MainWindow(QMainWindow):
         darkThemeAction.triggered.connect(lambda: self.setTheme('dark'))
         themeMenu.addAction(darkThemeAction)
         
-        autoThemeAction = QAction("自动", self)
+        autoThemeAction = QAction("跟随系统", self)
         autoThemeAction.triggered.connect(lambda: self.setTheme('auto'))
         themeMenu.addAction(autoThemeAction)
         
-        # 将主题子菜单添加到设置菜单
         settingsMenu.addMenu(themeMenu)
         
-        # 添加自动保存设置子菜单
+        # 自动保存设置
         autoSaveMenu = QMenu("自动保存", self)
         
-        # 失去焦点时自动保存选项
+        # 焦点变化时自动保存
         self.autoSaveOnFocusAction = QAction("失去焦点时自动保存", self)
         self.autoSaveOnFocusAction.setCheckable(True)
         self.autoSaveOnFocusAction.setChecked(self.configManager.get_auto_save_on_focus_change())
@@ -271,28 +321,181 @@ class MainWindow(QMainWindow):
         autoSaveMenu.addAction(self.autoSaveOnFocusAction)
         
         # 自动保存间隔选项
-        autoSaveIntervalMenu = QMenu("自动保存间隔", self)
+        intervalGroup = QMenu("自动保存间隔", self)
         
-        # 添加不同的时间间隔选项
-        for seconds in [5, 10, 30, 60, 120, 300]:
-            intervalAction = QAction(f"{seconds}秒", self)
-            intervalAction.triggered.connect(lambda checked, s=seconds: self.setAutoSaveInterval(s))
-            autoSaveIntervalMenu.addAction(intervalAction)
-            
-        autoSaveMenu.addMenu(autoSaveIntervalMenu)
+        # 添加几个间隔选项
+        intervals = [("5秒", 5), ("30秒", 30), ("1分钟", 60), ("5分钟", 300), ("10分钟", 600)]
+        currentInterval = self.configManager.get_auto_save_interval()
         
-        # 将自动保存子菜单添加到设置菜单
+        for name, seconds in intervals:
+            action = QAction(name, self)
+            action.setCheckable(True)
+            action.setChecked(currentInterval == seconds)
+            action.triggered.connect(lambda checked, s=seconds: self.setAutoSaveInterval(s))
+            intervalGroup.addAction(action)
+        
+        autoSaveMenu.addMenu(intervalGroup)
         settingsMenu.addMenu(autoSaveMenu)
         
-        # 工具菜单
-        toolsMenu = menuBar.addMenu("工具")
+        settingsMenu.addSeparator()
         
-        # 日志管理
-        logManagerAction = QAction("日志管理", self)
-        logManagerAction.setIcon(FluentIcon.DOCUMENT.icon())
+        # 打开日志管理器动作
+        logManagerAction = QAction("查看日志", self)
         logManagerAction.triggered.connect(self.showLogManager)
-        toolsMenu.addAction(logManagerAction)
+        settingsMenu.addAction(logManagerAction)
         
+        # 帮助菜单
+        helpMenu = menuBar.addMenu("帮助")
+        
+        # 关于动作
+        aboutAction = QAction("关于", self)
+        aboutAction.triggered.connect(self.showAbout)
+        helpMenu.addAction(aboutAction)
+        
+        # 提供插件自定义菜单项的钩子
+        self._setupPluginMenus(menuBar)
+    
+    def _setupPluginMenus(self, menuBar):
+        """设置插件菜单项
+        
+        Args:
+            menuBar: 菜单栏
+        """
+        # 此方法将在插件加载后被调用，以允许插件添加自己的菜单项
+        pass
+    
+    def updatePluginsMenu(self):
+        """更新插件菜单"""
+        # 清空现有菜单项
+        self.pluginsSubMenu.clear()
+        
+        # 获取所有可用插件
+        plugins_info = self.pluginManager.plugin_info
+        
+        # 按类型组织
+        plugins_by_type = {}
+        for plugin_name, plugin_info in plugins_info.items():
+            plugin_type = plugin_info.get('plugin_type', '通用')
+            if plugin_type not in plugins_by_type:
+                plugins_by_type[plugin_type] = []
+            plugins_by_type[plugin_type].append((plugin_name, plugin_info))
+        
+        # 为每种类型创建子菜单
+        for plugin_type, plugins in plugins_by_type.items():
+            type_menu = QMenu(plugin_type, self)
+            
+            for plugin_name, plugin_info in plugins:
+                # 创建插件动作
+                plugin_action = QAction(plugin_info['name'], self)
+                enabled = self.configManager.is_plugin_enabled(plugin_name)
+                plugin_action.setCheckable(True)
+                plugin_action.setChecked(enabled)
+                
+                # 连接到启用/禁用函数
+                plugin_action.triggered.connect(
+                    lambda checked, name=plugin_name: self.togglePlugin(name, checked)
+                )
+                
+                type_menu.addAction(plugin_action)
+            
+            self.pluginsSubMenu.addMenu(type_menu)
+        
+        # 如果没有插件，添加一个禁用的项目
+        if not plugins_info:
+            no_plugins_action = QAction("未安装插件", self)
+            no_plugins_action.setEnabled(False)
+            self.pluginsSubMenu.addAction(no_plugins_action)
+        
+    def togglePlugin(self, plugin_name, enabled):
+        """切换插件启用状态
+        
+        Args:
+            plugin_name: 插件名称
+            enabled: 是否启用
+        """
+        try:
+            # 更新配置
+            self.configManager.set_plugin_enabled(plugin_name, enabled)
+            
+            # 获取插件实例
+            plugin = self.pluginManager.get_plugin(plugin_name)
+            if plugin:
+                # 调用插件的启用/禁用方法
+                if enabled:
+                    plugin.enable()
+                else:
+                    plugin.disable()
+                
+                # 提示成功
+                action_text = "启用" if enabled else "禁用"
+                InfoBar.success(
+                    title=f"插件已{action_text}",
+                    content=f"插件 '{plugin_name}' 已成功{action_text}",
+                    orient=Qt.Horizontal,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+        except Exception as e:
+            error(f"切换插件 '{plugin_name}' 状态失败: {str(e)}")
+    
+    def showPluginManager(self):
+        """显示插件管理界面"""
+        # 创建插件管理对话框
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QDialogButtonBox
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("插件管理")
+        dialog.setMinimumSize(800, 600)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 创建插件管理器界面
+        plugin_manager_widget = PluginManagerWidget(dialog)
+        layout.addWidget(plugin_manager_widget)
+        
+        # 添加关闭按钮
+        button_box = QDialogButtonBox(QDialogButtonBox.Close)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        # 显示对话框
+        dialog.exec_()
+        
+        # 更新插件菜单
+        self.updatePluginsMenu()
+    
+    def refreshPlugins(self):
+        """刷新插件"""
+        try:
+            # 重新加载所有插件
+            self.pluginManager.load_all_plugins()
+            
+            # 更新插件菜单
+            self.updatePluginsMenu()
+            
+            # 提示成功
+            InfoBar.success(
+                title="插件已刷新",
+                content="已重新加载所有可用插件",
+                orient=Qt.Horizontal,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+        except Exception as e:
+            error(f"刷新插件失败: {str(e)}")
+            
+            # 提示错误
+            InfoBar.error(
+                title="刷新插件失败",
+                content=f"刷新插件时出错: {str(e)}",
+                orient=Qt.Horizontal,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            
     def updateRecentRepositoriesMenu(self):
         """ 更新最近仓库菜单 """
         # 清空除了最后一项（清空历史记录）外的所有菜单项
@@ -1264,3 +1467,16 @@ class MainWindow(QMainWindow):
     def setAutoSaveInterval(self, seconds):
         """ 设置自动保存间隔 """
         self.configManager.set_auto_save_interval(seconds) 
+        
+    def showAbout(self):
+        """ 显示关于对话框 """
+        from PyQt5.QtWidgets import QMessageBox
+        
+        QMessageBox.about(
+            self,
+            "关于 MGit",
+            "<h3>MGit - Markdown笔记与Git版本控制</h3>"
+            "<p>一个专为Markdown笔记设计的Git版本控制工具</p>"
+            "<p>版本: 1.0.0</p>"
+            "<p>© 2025 MGit 团队</p>"
+        ) 
