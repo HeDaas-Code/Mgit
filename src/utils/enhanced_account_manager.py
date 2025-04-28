@@ -419,6 +419,128 @@ class EnhancedAccountManager(QObject):
             error(f"添加Gitee账号失败: {str(e)}")
             return False
             
+    def add_gitee_account_oauth(self, code, client_id, client_secret, redirect_uri, name=None):
+        """
+        通过OAuth方式添加Gitee账号
+        
+        Args:
+            code: 从Gitee OAuth回调中获取的授权码
+            client_id: Gitee OAuth应用的Client ID
+            client_secret: Gitee OAuth应用的Client Secret
+            redirect_uri: OAuth回调地址
+            name: 账号别名，默认为用户名
+        
+        Returns:
+            bool: 是否添加成功
+        """
+        try:
+            # 使用授权码获取访问令牌
+            response = requests.post(
+                'https://gitee.com/oauth/token',
+                data={
+                    'client_id': client_id,
+                    'client_secret': client_secret,
+                    'code': code,
+                    'grant_type': 'authorization_code',
+                    'redirect_uri': redirect_uri
+                },
+                headers={'Accept': 'application/json'},
+                verify=False  # 禁用SSL证书验证
+            )
+            
+            if response.status_code != 200:
+                error(f"获取Gitee访问令牌失败: {response.status_code} - {response.text}")
+                return False
+            
+            # 解析响应获取访问令牌
+            data = response.json()
+            if 'access_token' not in data:
+                error(f"Gitee OAuth响应中未找到访问令牌: {data}")
+                return False
+            
+            token = data['access_token']
+            
+            # 获取用户信息
+            user_response = requests.get(
+                'https://gitee.com/api/v5/user',
+                headers={'Authorization': f'token {token}'},
+                verify=False  # 禁用SSL证书验证
+            )
+            
+            if user_response.status_code != 200:
+                error(f"获取Gitee用户信息失败: {user_response.status_code} - {user_response.text}")
+                return False
+            
+            user_data = user_response.json()
+            username = user_data.get('login')
+            avatar_url = user_data.get('avatar_url')
+            
+            if not username:
+                error("Gitee用户信息中未找到用户名")
+                return False
+            
+            # 如果未提供别名，使用用户名
+            if name is None:
+                name = username
+            
+            # 获取当前时间作为添加时间
+            now = datetime.now().isoformat()
+            
+            # 检查是否已存在该账号，如果存在则更新
+            account_exists = False
+            for account in self.accounts['gitee']:
+                if account['username'] == username:
+                    account_exists = True
+                    account.update({
+                        'token': token,
+                        'name': name,
+                        'avatar_url': avatar_url,
+                        'last_used': now
+                    })
+                    break
+            
+            # 如果不存在则添加新账号
+            if not account_exists:
+                new_account = {
+                    'username': username,
+                    'token': token,
+                    'name': name,
+                    'avatar_url': avatar_url,
+                    'added_at': now,
+                    'last_used': now
+                }
+                self.accounts['gitee'].append(new_account)
+            
+            # 保存账号信息
+            self.save_accounts()
+            
+            # 加载头像
+            if avatar_url:
+                self._load_avatar(username, avatar_url)
+            
+            # 设置为当前账号并触发登录成功信号
+            self.current_account = {
+                'type': 'gitee',
+                'data': self.accounts['gitee'][-1] if not account_exists else next(acc for acc in self.accounts['gitee'] if acc['username'] == username)
+            }
+            
+            # 更新最后登录的账号记录
+            self.accounts['last_login'] = {
+                'type': 'gitee',
+                'username': username
+            }
+            
+            # 保存账号更新
+            self.save_accounts()
+            
+            # 发出登录成功信号
+            self.loginSuccess.emit(self.current_account)
+            
+            return True
+        except Exception as e:
+            error(f"通过OAuth添加Gitee账号时出错: {str(e)}")
+            return False
+            
     def login_with_account(self, account_type, username):
         """
         使用指定账号登录

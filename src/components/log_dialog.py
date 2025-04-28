@@ -230,8 +230,9 @@ class LogHighlighter(QSyntaxHighlighter):
         # 添加日志级别规则
         for level, fmt in self.formats.items():
             if level not in ["date", "category"]:
-                pattern = f"\\b{level}\\b"
-                self.highlighting_rules.append((re.compile(pattern), fmt))
+                # 使用更灵活的匹配模式，可以匹配不同格式的日志级别
+                pattern = f"\\|\\s*{level}\\s*\\|"
+                self.highlighting_rules.append((re.compile(pattern, re.IGNORECASE), fmt))
         
         # 日期格式规则
         date_pattern = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{3})?"
@@ -244,11 +245,18 @@ class LogHighlighter(QSyntaxHighlighter):
     def highlightBlock(self, text):
         """实现高亮功能"""
         # 基于行内容选择整行颜色
-        if "ERROR" in text or "CRITICAL" in text:
+        level_patterns = {
+            "ERROR": re.compile(r"\|\s*ERROR\s*\|", re.IGNORECASE),
+            "CRITICAL": re.compile(r"\|\s*CRITICAL\s*\|", re.IGNORECASE),
+            "WARNING": re.compile(r"\|\s*WARNING\s*\|", re.IGNORECASE),
+            "SUCCESS": re.compile(r"\|\s*SUCCESS\s*\|", re.IGNORECASE)
+        }
+        
+        if level_patterns["ERROR"].search(text) or level_patterns["CRITICAL"].search(text):
             self.setFormat(0, len(text), self.create_format(QColor(255, 235, 235)))
-        elif "WARNING" in text:
+        elif level_patterns["WARNING"].search(text):
             self.setFormat(0, len(text), self.create_format(QColor(255, 248, 225)))
-        elif "SUCCESS" in text:
+        elif level_patterns["SUCCESS"].search(text):
             self.setFormat(0, len(text), self.create_format(QColor(235, 255, 235)))
         
         # 应用所有规则
@@ -273,15 +281,20 @@ class LogDialog(QDialog):
         self.loading_logs = False
         self.need_more_logs = False
         self.is_closing = False
+        self.original_content = ""  # 保存原始日志内容，用于导出等操作
+        
+        # 记录初始化
+        info("初始化日志管理器对话框")
         
         # 用于保存工作线程引用，以便在对话框关闭时停止线程
         self.worker_threads = []
+        self.worker = None  # 当前工作线程
         
         # 初始化UI
         self.setup_ui()
         
         # 加载日志
-        self.load_logs()
+        QTimer.singleShot(100, self.load_logs)  # 延迟加载，确保UI先显示
         
         # 设置定时刷新
         self.auto_refresh_timer = QTimer(self)
@@ -853,102 +866,175 @@ class LogDialog(QDialog):
     
     def load_logs(self):
         """初始加载日志"""
-        # 初始化各个标签页
+        # 记录初始化日志
+        info("开始初始化日志标签页")
+        
+        # 重置初始状态
         self.log_line_count = 0
         self.log_offset = 0
+        self.original_content = ""
+        
+        # 检查日志文件是否存在
+        log_path = get_log_file_path()
+        if not os.path.exists(log_path):
+            warning(f"日志文件不存在: {log_path}")
+            self.logContent.setPlainText(f"日志文件不存在: {log_path}\n请检查日志路径配置")
+            self.statusLabel.setText("未找到日志文件")
+            return
+            
+        if os.path.getsize(log_path) == 0:
+            warning(f"日志文件为空: {log_path}")
+            self.logContent.setPlainText(f"日志文件为空: {log_path}\n可能是应用刚刚安装或日志被清理")
+            self.statusLabel.setText("日志文件为空")
+            return
         
         # 主日志标签页
+        info("初始化主日志标签页")
+        self.logContent.setPlainText("正在加载日志内容...")
         self.refresh_log_content(initial_load=True)
         
-        # 分类标签页
-        QTimer.singleShot(300, self.refresh_category_list)
+        # 分类标签页 - 使用定时器错开加载时间，避免UI冻结
+        QTimer.singleShot(300, lambda: (info("初始化分类日志标签页"), self.refresh_category_list()))
         
         # 分析标签页
-        QTimer.singleShot(600, self.update_analysis)
+        QTimer.singleShot(600, lambda: (info("初始化分析标签页"), self.update_analysis()))
         
         # 管理标签页
-        QTimer.singleShot(900, self.refresh_log_files)
+        QTimer.singleShot(900, lambda: (info("初始化管理标签页"), self.refresh_log_files()))
         
         # 优化标签页 - 预加载状态
-        QTimer.singleShot(1200, self.analyze_logs)
+        QTimer.singleShot(1200, lambda: (info("初始化优化标签页"), self.analyze_logs()))
+        
+        info("日志标签页初始化完成")
     
     def refresh_log_content(self, initial_load=False):
         """刷新日志内容"""
         try:
-            if self.loading_logs:
-                self.need_more_logs = True
+            if initial_load:
+                self.log_offset = 0
+                self.logContent.clear()
+                self.logContent.setPlainText("正在加载日志内容...")
+                
+            # 记录调试信息
+            info(f"请求加载日志: offset={self.log_offset}, 初始加载={initial_load}")
+            
+            # 创建加载工作线程
+            self.worker = LogLoadWorker(self.log_offset, 300)
+            self.worker.loaded.connect(self.on_logs_loaded)
+            
+            # 检查日志文件是否存在
+            log_path = get_log_file_path()
+            if not os.path.exists(log_path) or os.path.getsize(log_path) == 0:
+                self.logContent.setPlainText(f"日志文件不存在或为空: {log_path}\n可能是应用刚刚安装或日志被清理")
+                self.statusLabel.setText("未找到日志")
                 return
                 
-            self.loading_logs = True
-            
-            # 显示加载状态
-            if initial_load:
-                self.logContent.setPlainText("正在加载日志内容...")
-            
-            # 使用工作线程加载日志
-            worker = LogLoadWorker(self.log_offset, self.logs_per_page)
-            worker.loaded.connect(self.on_logs_loaded)
-            
-            # 保存工作线程引用
-            self.worker_threads.append(worker)
-            worker.start()
-            
+            # 启动加载
+            self.worker.start()
         except Exception as e:
-            self.loading_logs = False
-            show_error_message(self, "加载失败", "无法加载日志", e)
+            error(f"刷新日志内容失败: {str(e)}")
+            self.logContent.setPlainText(f"加载日志失败: {str(e)}")
     
     def on_logs_loaded(self, logs, total_lines, has_more):
         """日志加载完成回调"""
         try:
-            self.loading_logs = False
+            # 记录加载完成
+            info(f"日志加载完成: 获取到 {len(logs) if logs else 0} 字节的日志，总行数: {total_lines}")
             
-            if self.is_closing:
+            # 如果界面已关闭，直接返回
+            if hasattr(self, 'is_closing') and self.is_closing:
                 return
+            
+            # 检查接收到的日志内容
+            if not logs or logs.startswith("加载日志失败") or logs.startswith("日志文件不存在"):
+                # 显示错误信息
+                self.logContent.setPlainText(logs)
+                self.statusLabel.setText("加载失败")
+                # 存储原始内容以便导出
+                self.original_content = logs
+                return
+            
+            # 检查日志解析
+            if "INFO" not in logs and "DEBUG" not in logs and "ERROR" not in logs and "WARNING" not in logs:
+                info(f"日志内容似乎不是标准格式，可能无法正确筛选: {logs[:100]}...")
                 
+            # 保存当前滚动位置
             cursor = self.logContent.textCursor()
             scroll_pos = self.logContent.verticalScrollBar().value()
             at_end = scroll_pos == self.logContent.verticalScrollBar().maximum()
             
-            if self.log_offset == 0:
+            # 初始加载或追加内容
+            if not hasattr(self, 'log_offset') or self.log_offset == 0:
                 self.logContent.setPlainText(logs)
+                # 存储原始内容以便导出
+                self.original_content = logs
             else:
                 # 追加新内容
                 cursor.movePosition(QTextCursor.End)
-                cursor.insertText(logs)
+                cursor.insertText("\n" + logs)
+                self.original_content += "\n" + logs
             
-            # 应用当前筛选器（如果有）
-            if self.current_filter:
-                self.apply_filter(self.current_filter, update_ui_only=True)
+            # 重置级别选择器，确保"全部"选项被正确显示
+            if hasattr(self, 'levelCombo') and self.levelCombo.currentText() == "全部":
+                # 不需要应用任何级别筛选，只应用其他筛选条件
+                if hasattr(self, 'current_filter') and self.current_filter:
+                    # 避免将"全部"作为关键词
+                    if self.current_filter.lower() == "全部":
+                        self.current_filter = ""
+                        if hasattr(self, 'keywordEdit'):
+                            self.keywordEdit.clear()
+                    
+                    # 应用其他筛选条件
+                    self.apply_filter(update_ui_only=True)
+            else:
+                # 应用当前筛选器（如果有）
+                if hasattr(self, 'current_filter') and self.current_filter:
+                    self.apply_filter(self.current_filter, update_ui_only=True)
             
             # 更新滚动位置
             if at_end:
-                self.logContent.verticalScrollBar().setValue(
-                    self.logContent.verticalScrollBar().maximum()
-                )
+                # 如果之前在底部，保持在底部
+                self.scroll_to_end()
             else:
+                # 否则保持在原位置
                 self.logContent.verticalScrollBar().setValue(scroll_pos)
             
-            # 更新计数器和进度条
-            self.log_line_count = total_lines
-            self.statusLabel.setText(f"已加载: {min(self.log_offset + self.logs_per_page, total_lines)}/{total_lines}")
+            # 更新状态显示
+            if hasattr(self, 'logs_per_page'):
+                offset = getattr(self, 'log_offset', 0)
+                self.statusLabel.setText(f"已加载: {min(offset + self.logs_per_page, total_lines)}/{total_lines}")
+            else:
+                self.statusLabel.setText(f"已加载: {total_lines} 行日志")
             
-            # 添加底部加载更多提示
-            if has_more:
+            # 处理"加载更多"逻辑
+            if has_more and hasattr(self, 'log_offset') and hasattr(self, 'logs_per_page'):
                 self.log_offset += self.logs_per_page
                 
                 # 如果视图在底部，或者需要更多日志，自动加载更多
-                if at_end or self.need_more_logs:
-                    self.need_more_logs = False
+                if at_end or (hasattr(self, 'need_more_logs') and self.need_more_logs):
+                    if hasattr(self, 'need_more_logs'):
+                        self.need_more_logs = False
                     QTimer.singleShot(100, self.refresh_log_content)
             
-            # 移除完成的工作线程
-            for thread in self.worker_threads[:]:
-                if not thread.isRunning():
-                    self.worker_threads.remove(thread)
-                    thread.deleteLater()
-            
+            # 清理引用
+            if hasattr(self, 'worker'):
+                if hasattr(self, 'worker_threads'):
+                    if self.worker in self.worker_threads:
+                        self.worker_threads.remove(self.worker)
+                else:
+                    self.worker.deleteLater()
+                    self.worker = None
+                    
         except Exception as e:
-            warning(f"处理加载日志结果失败: {str(e)}")
+            error(f"处理加载日志结果失败: {str(e)}")
+            # 尝试获取更多错误信息
+            import traceback
+            error_details = traceback.format_exc()
+            error(f"详细错误: {error_details}")
+            
+            # 显示错误消息
+            self.logContent.setPlainText(f"处理日志数据时出错: {str(e)}")
+            self.statusLabel.setText("加载错误")
     
     def scroll_to_end(self):
         """滚动到底部"""
@@ -975,7 +1061,15 @@ class LogDialog(QDialog):
             if filter_text:
                 keyword = filter_text
                 
+            # 特殊处理：如果关键词是"全部"，这可能是误操作，清空关键词
+            if keyword.lower() == "全部":
+                keyword = ""
+                self.keywordEdit.clear()
+                
             self.current_filter = keyword
+            
+            # 记录筛选参数
+            info(f"应用筛选: 级别='{level}', 分类='{category}', 关键词='{keyword}', 时间范围='{date_range}'")
         else:
             # 仅更新UI显示，使用现有筛选条件
             level = self.levelCombo.currentText()
@@ -986,20 +1080,28 @@ class LogDialog(QDialog):
         # 获取当前文本内容
         current_text = self.logContent.toPlainText()
         if not current_text or current_text == "正在加载日志内容...":
+            info("日志内容为空或正在加载，跳过筛选")
             return
             
+        # 记录原始行数
+        original_lines = current_text.split('\n')
+        info(f"原始日志行数: {len(original_lines)}")
+        
         # 应用筛选逻辑
         filtered_lines = []
-        for line in current_text.split('\n'):
+        for line in original_lines:
             if not line.strip():
                 continue
                 
             include_line = True
                 
             # 级别筛选
-            if level != "全部" and f"| {level} |" not in line:
-                include_line = False
-                
+            if level != "全部":
+                # 尝试使用更灵活的匹配方式
+                level_pattern = re.compile(f"\\|\\s*{level}\\s*\\|", re.IGNORECASE)
+                if not level_pattern.search(line):
+                    include_line = False
+                    
             # 分类筛选
             if category != "全部" and category not in line:
                 include_line = False
@@ -1022,19 +1124,46 @@ class LogDialog(QDialog):
                         
                         if log_date < cutoff_str:
                             include_line = False
-                    except:
+                    except Exception as e:
+                        debug(f"日期筛选处理异常: {str(e)}, 行: {line[:50]}...")
+                        # 如果解析失败，保留该行
                         pass
                     
             if include_line:
                 filtered_lines.append(line)
-            
+        
+        # 记录筛选后的行数
+        info(f"筛选后日志行数: {len(filtered_lines)}")
+        
         # 更新显示
         if filtered_lines:
             self.logContent.setPlainText('\n'.join(filtered_lines))
             count = len(filtered_lines)
-            self.statusLabel.setText(f"找到 {count} 条匹配日志")
+            
+            # 提供更详细的筛选状态
+            status_message = f"找到 {count} 条匹配日志"
+            if level != "全部" or category != "全部" or keyword:
+                status_message += " ("
+                if level != "全部":
+                    status_message += f"级别:{level}"
+                if category != "全部":
+                    status_message += f"{' ' if level != '全部' else ''}分类:{category}"
+                if keyword:
+                    status_message += f"{' ' if level != '全部' or category != '全部' else ''}关键词:{keyword}"
+                status_message += ")"
+                
+            self.statusLabel.setText(status_message)
         else:
-            self.logContent.setPlainText("没有找到匹配的日志记录")
+            # 提供更具体的提示信息
+            if level != "全部" and category == "全部" and not keyword:
+                self.logContent.setPlainText(f"没有找到级别为 '{level}' 的日志记录\n请检查日志格式或尝试选择'全部'级别")
+            elif level == "全部" and category != "全部" and not keyword:
+                self.logContent.setPlainText(f"没有找到分类为 '{category}' 的日志记录")
+            elif keyword:
+                self.logContent.setPlainText(f"没有找到包含关键词 '{keyword}' 的日志记录")
+            else:
+                self.logContent.setPlainText("没有找到匹配的日志记录\n可能是日志文件为空或日志格式与筛选条件不匹配")
+            
             self.statusLabel.setText("筛选结果为空")
             
         # 如果筛选结果较少，尝试加载更多数据
@@ -1390,14 +1519,19 @@ class LogDialog(QDialog):
                 "TRACE": 0
             }
             
+            # 创建级别匹配模式
+            level_patterns = {}
+            for level in levels.keys():
+                level_patterns[level] = re.compile(f"\\|\\s*{level}\\s*\\|", re.IGNORECASE)
+            
             total = 0
             for line in log_content.split('\n'):
                 if not line.strip():
                     continue
                     
                 total += 1
-                for level in levels.keys():
-                    if f"| {level} " in line:
+                for level, pattern in level_patterns.items():
+                    if pattern.search(line):
                         levels[level] += 1
                         break
             
@@ -1595,6 +1729,9 @@ class LogDialog(QDialog):
             errors = []
             current_error = []
             
+            # 创建正则表达式用于匹配ERROR和CRITICAL级别
+            error_pattern = re.compile(r"\|\s*(ERROR|CRITICAL)\s*\|", re.IGNORECASE)
+            
             for line in log_content.split('\n'):
                 if not line.strip():
                     if current_error:
@@ -1602,7 +1739,7 @@ class LogDialog(QDialog):
                         current_error = []
                     continue
                 
-                if "ERROR" in line or "CRITICAL" in line:
+                if error_pattern.search(line):
                     if current_error:
                         errors.append('\n'.join(current_error))
                         current_error = []
@@ -1643,10 +1780,13 @@ class LogDialog(QDialog):
             # 清空列表
             self.perfList.clear()
             
+            # 创建性能日志匹配模式（通常为TRACE级别）
+            trace_pattern = re.compile(r"\|\s*TRACE\s*\|", re.IGNORECASE)
+            
             # 过滤性能日志
             if logs:
                 perf_logs = [log for log in logs.split('\n') 
-                            if log.strip() and ("TRACE" in log or LogCategory.PERFORMANCE.value in log)]
+                          if log.strip() and trace_pattern.search(log)]
                 
                 # 记录过滤后的日志数量
                 info(f"性能日志更新：过滤后有 {len(perf_logs)} 条性能日志")
@@ -1919,7 +2059,7 @@ class LogDialog(QDialog):
             elif selected_option == "old":
                 # 清理旧日志
                 days = self.daysSpinner.value()
-                clean_params["days"] = days
+                clean_params["older_than_days"] = days
                 
             elif selected_option == "category":
                 # 清理特定分类日志
@@ -3370,19 +3510,56 @@ class LogLoadWorker(QThread):
     def run(self):
         """执行日志加载"""
         try:
+            info(f"开始加载日志: offset={self.offset}, limit={self.limit}")
+            
+            # 检查日志文件是否存在
+            log_file = get_log_file_path()
+            if not os.path.exists(log_file):
+                warning(f"日志文件不存在: {log_file}")
+                self.loaded.emit(
+                    f"日志文件不存在: {log_file}",
+                    0,
+                    False
+                )
+                return
+                
+            # 检查日志文件大小
+            if os.path.getsize(log_file) == 0:
+                warning(f"日志文件为空: {log_file}")
+                self.loaded.emit(
+                    f"日志文件为空: {log_file}",
+                    0,
+                    False
+                )
+                return
+            
             # 获取所有可用日志
-            all_logs = get_recent_logs(2000)  # 最多获取2000行
+            all_logs = get_recent_logs(5000)  # 增加获取的日志行数
+            
+            # 检查日志内容
+            if not all_logs or not all_logs.strip():
+                warning("获取到的日志内容为空")
+                self.loaded.emit(
+                    "日志内容为空，可能是应用刚刚安装或日志被清理",
+                    0,
+                    False
+                )
+                return
             
             # 分割为行
-            log_lines = all_logs.split('\n')
+            log_lines = all_logs.strip().split('\n')
             total_lines = len(log_lines)
             
+            info(f"总共获取到 {total_lines} 行日志")
+            
             # 确定截取范围
-            start_idx = self.offset
+            start_idx = min(self.offset, total_lines)
             end_idx = min(self.offset + self.limit, total_lines)
             
             # 切片获取当前页日志
             current_page = log_lines[start_idx:end_idx]
+            
+            info(f"返回日志行 {start_idx} 到 {end_idx}, 共 {len(current_page)} 行")
             
             # 发送结果
             self.loaded.emit(
@@ -3392,9 +3569,16 @@ class LogLoadWorker(QThread):
             )
         
         except Exception as e:
+            error(f"加载日志失败: {str(e)}")
+            
+            # 尝试获取更详细的错误信息
+            import traceback
+            error_details = traceback.format_exc()
+            error(f"详细错误信息: {error_details}")
+            
             # 发送空结果和错误信息
             self.loaded.emit(
-                f"加载日志失败: {str(e)}",
+                f"加载日志失败: {str(e)}\n请检查日志文件权限或配置",
                 0,
                 False
             )

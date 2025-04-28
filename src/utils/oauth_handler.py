@@ -17,6 +17,8 @@ from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayo
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile, QWebEnginePage, QWebEngineCertificateError
 from qfluentwidgets import InfoBar, InfoBarPosition
 from datetime import datetime
+from pathlib import Path
+from cryptography.fernet import Fernet
 
 # 导入日志模块
 from src.utils.logger import info, warning, error, debug
@@ -313,6 +315,8 @@ class OAuthHandler(QObject):
         self.host = "localhost"
         self.use_ssl = True  # 默认使用SSL
         self.browser_dialog = None  # 保存对话框引用
+        self._auth_in_progress = False  # 标记是否有正在进行的授权流程
+        self._cleanup_timers = []  # 保存所有清理计时器
         
         # 尝试多个端口，防止端口占用
         self.available_ports = [8000, 8080, 9000, 9090, 10000, 10800]
@@ -324,6 +328,12 @@ class OAuthHandler(QObject):
         # 检查并确保有有效的SSL证书
         self.cert_file, self.key_file = self.ssl_helper.ensure_valid_cert()
         
+        # 初始化加密工具
+        self._init_encryption()
+        
+        # 配置文件路径
+        self.config_file = self._get_config_file_path()
+        
         # GitHub OAuth配置
         self.github_client_id = os.environ.get("GITHUB_CLIENT_ID", "")
         self.github_client_secret = os.environ.get("GITHUB_CLIENT_SECRET", "")
@@ -332,8 +342,122 @@ class OAuthHandler(QObject):
         self.gitee_client_id = os.environ.get("GITEE_CLIENT_ID", "")
         self.gitee_client_secret = os.environ.get("GITEE_CLIENT_SECRET", "")
         
+        # 尝试加载保存的配置
+        self.load_oauth_config()
+        
         # 更新重定向URI
         self.update_redirect_uris()
+        
+    def _get_config_file_path(self):
+        """获取OAuth配置文件路径"""
+        # 使用与账号管理器相同的配置目录
+        home_dir = str(Path.home())
+        config_dir = os.path.join(home_dir, '.mgit')
+        
+        # 确保目录存在
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+            
+        return os.path.join(config_dir, 'oauth_config.dat')
+        
+    def _init_encryption(self):
+        """初始化加密工具，使用与账号管理器相同的密钥"""
+        try:
+            # 使用与账号管理器相同的密钥文件
+            home_dir = str(Path.home())
+            config_dir = os.path.join(home_dir, '.mgit')
+            key_file = os.path.join(config_dir, 'key.dat')
+            
+            if os.path.exists(key_file):
+                # 加载现有密钥
+                with open(key_file, 'rb') as f:
+                    self.key = f.read()
+                    
+                # 创建Fernet实例
+                self.fernet = Fernet(self.key)
+            else:
+                # 如果密钥不存在，等待账号管理器创建
+                self.fernet = None
+                warning("OAuth加密初始化失败：密钥文件不存在")
+        except Exception as e:
+            error(f"OAuth加密初始化失败: {str(e)}")
+            self.fernet = None
+            
+    def save_oauth_config(self):
+        """加密保存OAuth配置"""
+        if not self.fernet:
+            # 尝试重新初始化加密工具
+            self._init_encryption()
+            if not self.fernet:
+                warning("无法保存OAuth配置：加密工具未初始化")
+                return False
+                
+        try:
+            # 构建配置数据
+            config_data = {
+                'github': {
+                    'client_id': self.github_client_id,
+                    'client_secret': self.github_client_secret
+                },
+                'gitee': {
+                    'client_id': self.gitee_client_id,
+                    'client_secret': self.gitee_client_secret
+                }
+            }
+            
+            # 序列化并加密
+            json_data = json.dumps(config_data, ensure_ascii=False)
+            encrypted_data = self.fernet.encrypt(json_data.encode('utf-8'))
+            
+            # 保存加密数据
+            with open(self.config_file, 'wb') as f:
+                f.write(encrypted_data)
+                
+            info("OAuth配置已加密保存")
+            return True
+        except Exception as e:
+            error(f"保存OAuth配置失败: {str(e)}")
+            return False
+            
+    def load_oauth_config(self):
+        """加载加密的OAuth配置"""
+        if not self.fernet:
+            # 尝试重新初始化加密工具
+            self._init_encryption()
+            if not self.fernet:
+                warning("无法加载OAuth配置：加密工具未初始化")
+                return False
+                
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'rb') as f:
+                    encrypted_data = f.read()
+                    
+                try:
+                    # 解密数据
+                    decrypted_data = self.fernet.decrypt(encrypted_data)
+                    config = json.loads(decrypted_data.decode('utf-8'))
+                    
+                    # 更新配置
+                    if 'github' in config:
+                        self.github_client_id = config['github'].get('client_id', '')
+                        self.github_client_secret = config['github'].get('client_secret', '')
+                        
+                    if 'gitee' in config:
+                        self.gitee_client_id = config['gitee'].get('client_id', '')
+                        self.gitee_client_secret = config['gitee'].get('client_secret', '')
+                        
+                    info("OAuth配置已从加密存储加载")
+                    return True
+                except Exception as e:
+                    error(f"解密OAuth配置失败: {str(e)}")
+                    return False
+            else:
+                debug("OAuth配置文件不存在，使用默认值")
+                return False
+        except Exception as e:
+            error(f"加载OAuth配置失败: {str(e)}")
+            return False
         
     def update_redirect_uris(self):
         """更新重定向URI"""
@@ -425,18 +549,59 @@ class OAuthHandler(QObject):
         self.server = None
         self.server_thread = None
         
+    def force_stop_auth(self):
+        """强制停止当前的OAuth授权流程"""
+        debug("强制停止OAuth授权流程")
+        self._auth_in_progress = False
+        
+        # 清理所有计时器
+        for timer in self._cleanup_timers:
+            if timer and timer.is_alive():
+                try:
+                    timer.cancel()
+                except:
+                    pass
+        self._cleanup_timers = []
+        
+        # 关闭浏览器对话框
+        if self.browser_dialog:
+            try:
+                debug("强制关闭OAuth浏览器对话框")
+                # 使用safeReject方法安全关闭对话框
+                if hasattr(self.browser_dialog, 'safeReject'):
+                    self.browser_dialog.safeReject()
+                else:
+                    self.browser_dialog.reject()
+                self.browser_dialog = None
+            except Exception as e:
+                error(f"关闭OAuth浏览器对话框时出错: {str(e)}")
+        
+        # 停止服务器
+        self.stop_server()
+        
+        debug("OAuth授权流程已强制停止")
+        
     def start_github_auth(self):
         """启动GitHub OAuth流程"""
         try:
+            # 检查是否有正在进行的授权流程
+            if self._auth_in_progress:
+                debug("有正在进行的OAuth流程，先强制停止")
+                self.force_stop_auth()
+                
+            self._auth_in_progress = True
+                
             # 检查Client ID和Secret是否已设置
             if not self.github_client_id or not self.github_client_secret:
                 error("未设置GitHub OAuth客户端ID和密钥")
                 self.githubAuthFailed.emit("未配置GitHub OAuth，请先配置应用")
+                self._auth_in_progress = False
                 return False
                 
             # 启动回调服务器
             if not self.start_server():
                 self.githubAuthFailed.emit("无法启动OAuth回调服务器")
+                self._auth_in_progress = False
                 return False
                 
             # 确保重定向URI使用HTTP
@@ -495,62 +660,77 @@ class OAuthHandler(QObject):
             
     def start_gitee_auth(self, gitee_url="https://gitee.com"):
         """启动Gitee OAuth流程"""
-        # 检查Client ID和Secret是否已设置
-        if not self.gitee_client_id or not self.gitee_client_secret:
-            error("未设置Gitee OAuth客户端ID和密钥")
-            self.giteeAuthFailed.emit("未配置Gitee OAuth，请先配置应用")
-            return False
-            
-        # 启动回调服务器
-        if not self.start_server():
-            self.giteeAuthFailed.emit("无法启动OAuth回调服务器")
-            return False
-            
-        # 确保重定向URI使用HTTP
-        self.update_redirect_uris()
-            
-        # 构建授权URL
-        auth_url = (
-            f"{gitee_url}/oauth/authorize?"
-            f"client_id={self.gitee_client_id}&"
-            f"redirect_uri={self.gitee_redirect_uri}&"
-            f"response_type=code&"
-            f"scope=projects pull_requests issues"
-        )
-        
-        info(f"启动Gitee OAuth流程，URL: {auth_url}")
-        
-        # 显示提示和选项弹窗
-        reply = QMessageBox.question(
-            self.parent(),
-            "OAuth授权",
-            "您可以选择在内置浏览器中授权，或打开系统浏览器完成授权。\n\n系统浏览器可能更稳定。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
-        )
-        
-        if reply == QMessageBox.StandardButton.No:
-            # 使用系统浏览器
-            webbrowser.open(auth_url)
-            
-            # 显示提示
-            QMessageBox.information(
-                self.parent(),
-                "在浏览器中完成授权",
-                "请在打开的浏览器窗口中完成授权。\n完成后将自动返回应用。",
-                QMessageBox.StandardButton.Ok
+        try:
+            # 检查是否有正在进行的授权流程
+            if self._auth_in_progress:
+                debug("有正在进行的OAuth流程，先强制停止")
+                self.force_stop_auth()
+                
+            self._auth_in_progress = True
+                
+            # 检查Client ID和Secret是否已设置
+            if not self.gitee_client_id or not self.gitee_client_secret:
+                error("未设置Gitee OAuth客户端ID和密钥")
+                self.giteeAuthFailed.emit("未配置Gitee OAuth，请先配置应用")
+                self._auth_in_progress = False
+                return False
+                
+            # 启动回调服务器
+            if not self.start_server():
+                self.giteeAuthFailed.emit("无法启动OAuth回调服务器")
+                self._auth_in_progress = False
+                return False
+                
+            # 确保重定向URI使用HTTP
+            self.update_redirect_uris()
+                
+            # 构建授权URL
+            auth_url = (
+                f"{gitee_url}/oauth/authorize?"
+                f"client_id={self.gitee_client_id}&"
+                f"redirect_uri={self.gitee_redirect_uri}&"
+                f"response_type=code&"
+                f"scope=projects pull_requests issues"
             )
             
-            return True
-        
-        try:
-            # 在内置浏览器中打开
-            self.browser_dialog = OAuthBrowserDialog(auth_url, "gitee", self.gitee_redirect_uri, parent=self.parent())
-            self.browser_dialog.authSuccess.connect(lambda code: self._handle_gitee_code(code))
-            self.browser_dialog.authFailed.connect(lambda error: self.giteeAuthFailed.emit(error))
-            self.browser_dialog.finished.connect(lambda: self._on_dialog_closed())
-            self.browser_dialog.show()
-            return True
+            info(f"启动Gitee OAuth流程，URL: {auth_url}")
+            
+            # 显示提示和选项弹窗
+            reply = QMessageBox.question(
+                self.parent(),
+                "OAuth授权",
+                "您可以选择在内置浏览器中授权，或打开系统浏览器完成授权。\n\n系统浏览器可能更稳定。",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            
+            if reply == QMessageBox.StandardButton.No:
+                # 使用系统浏览器
+                webbrowser.open(auth_url)
+                
+                # 显示提示
+                QMessageBox.information(
+                    self.parent(),
+                    "在浏览器中完成授权",
+                    "请在打开的浏览器窗口中完成授权。\n完成后将自动返回应用。",
+                    QMessageBox.StandardButton.Ok
+                )
+                
+                return True
+            
+            try:
+                # 在内置浏览器中打开
+                self.browser_dialog = OAuthBrowserDialog(auth_url, "gitee", self.gitee_redirect_uri, parent=self.parent())
+                self.browser_dialog.authSuccess.connect(lambda code: self._handle_gitee_code(code))
+                self.browser_dialog.authFailed.connect(lambda error: self.giteeAuthFailed.emit(error))
+                self.browser_dialog.finished.connect(lambda: self._on_dialog_closed())
+                self.browser_dialog.show()
+                return True
+            except Exception as e:
+                error(f"启动Gitee OAuth流程失败: {str(e)}")
+                self.giteeAuthFailed.emit(f"启动授权流程失败: {str(e)}")
+                return False
+                
         except Exception as e:
             error(f"启动Gitee OAuth流程失败: {str(e)}")
             self.giteeAuthFailed.emit(f"启动授权流程失败: {str(e)}")
@@ -559,6 +739,9 @@ class OAuthHandler(QObject):
     def _handle_github_code(self, code):
         """处理GitHub OAuth回调中的授权码"""
         info("收到GitHub OAuth授权码")
+        
+        # 清除授权中状态标志
+        self._auth_in_progress = False
         
         # 发射授权成功信号
         self.githubAuthSuccess.emit(code)
@@ -572,9 +755,15 @@ class OAuthHandler(QObject):
         timer.daemon = True
         timer.start()
         
+        # 保存计时器引用以便于清理
+        self._cleanup_timers.append(timer)
+        
     def _handle_gitee_code(self, code):
         """处理Gitee OAuth回调中的授权码"""
         info("收到Gitee OAuth授权码")
+        
+        # 清除授权中状态标志
+        self._auth_in_progress = False
         
         # 发射授权成功信号
         self.giteeAuthSuccess.emit(code)
@@ -588,9 +777,15 @@ class OAuthHandler(QObject):
         timer.daemon = True
         timer.start()
         
+        # 保存计时器引用以便于清理
+        self._cleanup_timers.append(timer)
+        
     def _on_dialog_closed(self):
         """对话框关闭时的清理函数"""
         info("OAuth浏览器对话框已关闭")
+        
+        # 清除授权中状态标志
+        self._auth_in_progress = False
         
         # 解除对对话框的引用，但不尝试主动清理资源
         # 对话框自己会负责在合适的时机清理资源
@@ -605,22 +800,18 @@ class OAuthHandler(QObject):
                 dialog.cleanupWebResources()
             except Exception as e:
                 error(f"清理OAuth浏览器资源时出错: {str(e)}")
-        
-        # 最后确保对OAuth服务器的清理
-        try:
-            # 延迟停止服务器
-            def delayed_stop():
-                try:
-                    self.stop_server()
-                except:
-                    pass
+                
+        # 使用threading.Timer代替QTimer避免线程问题
+        def delayed_stop():
+            self.stop_server()
             
-            # 10秒后停止服务器
-            timer = threading.Timer(10.0, delayed_stop)
-            timer.daemon = True
-            timer.start()
-        except:
-            pass
+        # 5秒后停止服务器
+        timer = threading.Timer(5.0, delayed_stop)
+        timer.daemon = True
+        timer.start()
+        
+        # 保存计时器引用以便于清理
+        self._cleanup_timers.append(timer)
         
 class OAuthBrowserDialog(QDialog):
     """内置浏览器的OAuth授权对话框"""
