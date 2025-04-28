@@ -36,7 +36,9 @@ MGit是一款基于Python的Markdown笔记应用，结合了直观的编辑体�
 - [OAuth认证指南](./docs/oauth_authentication.md)
 - [插件开发指南](./docs/plugin_development.md)
 - [更新日志](./CHANGELOG.md)
-
+- [日志管理系统更新文档](./docs/log_system_updates.md)
+- [日志优化器用户指南](./docs/log_optimizer_README.md)
+  
 ## 插件系统
 
 MGit引入了强大的插件系统，允许用户和开发者扩展应用功能：
@@ -64,7 +66,7 @@ MGit引入了强大的日志管理系统，允许用户和开发者追踪程序�
 - **导出功能**：导出特定日志进行深入分析
 - **配置调整**：调整日志系统配置以优化性能
 
-查看[日志管理系统更新文档](./docs/plugin_development.md)了解更多更新信息。
+查看[日志管理系统更新文档](./docs/log_system_updates.md)与[日志优化器用户指南](./docs/log_optimizer_README.md)了解更多更新信息。
 
 ## 贡献
 
