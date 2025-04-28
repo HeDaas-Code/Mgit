@@ -1076,7 +1076,7 @@ class LogDialog(QDialog):
         if filtered_text != self.original_content and filtered_text.strip():
             reply = QMessageBox.question(
                 self, "导出确认", 
-        "是否导出筛选后的日志内容？\n选择\"否\"将导出完整日志文件，包含所有分类。",
+    "是否导出筛选后的日志内容？\n选择\"否\"将导出完整日志文件，包含所有分类。",
                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
             )
             
@@ -1105,7 +1105,7 @@ class LogDialog(QDialog):
         if result:
             InfoBar.success(
                 title="成功",
-        content=f"完整日志已导出到: {file_path}",
+                content=f"完整日志已导出到: {file_path}",
                 parent=self,
                 position=InfoBarPosition.TOP,
                 duration=3000
