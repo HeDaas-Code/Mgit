@@ -222,6 +222,8 @@ class EnhancedAccountManager(QObject):
             bool: 是否添加成功
         """
         try:
+            info(f"尝试通过OAuth添加GitHub账号，授权码: {code[:5]}...")
+            
             # 使用授权码获取访问令牌
             response = requests.post(
                 'https://github.com/login/oauth/access_token',
@@ -236,12 +238,14 @@ class EnhancedAccountManager(QObject):
             
             if response.status_code != 200:
                 error(f"获取GitHub访问令牌失败: {response.status_code} - {response.text}")
+                self.loginFailed.emit(f"获取GitHub访问令牌失败: {response.status_code}")
                 return False
             
             # 解析响应获取访问令牌
             data = response.json()
             if 'access_token' not in data:
                 error(f"GitHub OAuth响应中未找到访问令牌: {data}")
+                self.loginFailed.emit("GitHub OAuth响应中未找到访问令牌")
                 return False
             
             token = data['access_token']
@@ -255,60 +259,62 @@ class EnhancedAccountManager(QObject):
             
             if user_response.status_code != 200:
                 error(f"获取GitHub用户信息失败: {user_response.status_code} - {user_response.text}")
+                self.loginFailed.emit(f"获取GitHub用户信息失败: {user_response.status_code}")
                 return False
             
             user_data = user_response.json()
-            username = user_data.get('login')
-            avatar_url = user_data.get('avatar_url')
+            username = user_data['login']
             
-            if not username:
-                error("GitHub用户信息中未找到用户名")
-                return False
-            
-            # 如果未提供别名，使用用户名
+            # 如果未提供别名，使用用户名或名称
             if name is None:
-                name = username
+                name = user_data.get('name', username)
+                
+            # 添加头像URL
+            avatar_url = user_data.get('avatar_url', '')
             
-            # 获取当前时间作为添加时间
-            now = datetime.now().isoformat()
-            
-            # 检查是否已存在该账号，如果存在则更新
-            account_exists = False
+            # 创建新账号或更新现有账号
+            found = False
             for account in self.accounts['github']:
                 if account['username'] == username:
-                    account_exists = True
-                    account.update({
-                        'token': token,
-                        'name': name,
-                        'avatar_url': avatar_url,
-                        'last_used': now
-                    })
+                    # 更新现有账号
+                    account['token'] = token
+                    account['name'] = name
+                    account['avatar_url'] = avatar_url
+                    account['last_used'] = datetime.now().isoformat()
+                    
+                    # 如果没有添加时间，添加
+                    if 'added_at' not in account:
+                        account['added_at'] = datetime.now().isoformat()
+                        
+                    found = True
                     break
-            
-            # 如果不存在则添加新账号
-            if not account_exists:
+                    
+            if not found:
+                # 添加新账号
                 new_account = {
                     'username': username,
                     'token': token,
                     'name': name,
                     'avatar_url': avatar_url,
-                    'added_at': now,
-                    'last_used': now
+                    'added_at': datetime.now().isoformat(),
+                    'last_used': datetime.now().isoformat()
                 }
                 self.accounts['github'].append(new_account)
-            
-            # 保存账号信息
+                
+            # 保存账号更新
             self.save_accounts()
             
+            # 设置为当前登录的账号
+            for account in self.accounts['github']:
+                if account['username'] == username:
+                    self.current_account = {
+                        'type': 'github',
+                        'data': account
+                    }
+                    break
+                    
             # 加载头像
-            if avatar_url:
-                self._load_avatar(username, avatar_url)
-            
-            # 设置为当前账号并触发登录成功信号
-            self.current_account = {
-                'type': 'github',
-                'data': self.accounts['github'][-1] if not account_exists else next(acc for acc in self.accounts['github'] if acc['username'] == username)
-            }
+            self._load_avatar(username, avatar_url)
             
             # 更新最后登录的账号记录
             self.accounts['last_login'] = {
@@ -319,12 +325,17 @@ class EnhancedAccountManager(QObject):
             # 保存账号更新
             self.save_accounts()
             
+            # 发出账号列表变更信号
+            self.accountsChanged.emit()
+            
             # 发出登录成功信号
             self.loginSuccess.emit(self.current_account)
             
+            info(f"成功通过OAuth添加并登录GitHub账号: {username}")
             return True
         except Exception as e:
             error(f"通过OAuth添加GitHub账号时出错: {str(e)}")
+            self.loginFailed.emit(f"添加GitHub账号失败: {str(e)}")
             return False
             
     def add_gitee_account(self, username, token, name=None):
@@ -434,6 +445,8 @@ class EnhancedAccountManager(QObject):
             bool: 是否添加成功
         """
         try:
+            info(f"尝试通过OAuth添加Gitee账号，授权码: {code[:5]}...")
+            
             # 使用授权码获取访问令牌
             response = requests.post(
                 'https://gitee.com/oauth/token',
@@ -450,12 +463,14 @@ class EnhancedAccountManager(QObject):
             
             if response.status_code != 200:
                 error(f"获取Gitee访问令牌失败: {response.status_code} - {response.text}")
+                self.loginFailed.emit(f"获取Gitee访问令牌失败: {response.status_code}")
                 return False
             
             # 解析响应获取访问令牌
             data = response.json()
             if 'access_token' not in data:
                 error(f"Gitee OAuth响应中未找到访问令牌: {data}")
+                self.loginFailed.emit("Gitee OAuth响应中未找到访问令牌")
                 return False
             
             token = data['access_token']
@@ -469,60 +484,62 @@ class EnhancedAccountManager(QObject):
             
             if user_response.status_code != 200:
                 error(f"获取Gitee用户信息失败: {user_response.status_code} - {user_response.text}")
+                self.loginFailed.emit(f"获取Gitee用户信息失败: {user_response.status_code}")
                 return False
             
             user_data = user_response.json()
-            username = user_data.get('login')
-            avatar_url = user_data.get('avatar_url')
-            
-            if not username:
-                error("Gitee用户信息中未找到用户名")
-                return False
+            username = user_data['login']
             
             # 如果未提供别名，使用用户名
             if name is None:
-                name = username
+                name = user_data.get('name', username)
+                
+            # 添加头像URL
+            avatar_url = user_data.get('avatar_url', '')
             
-            # 获取当前时间作为添加时间
-            now = datetime.now().isoformat()
-            
-            # 检查是否已存在该账号，如果存在则更新
-            account_exists = False
+            # 创建新账号或更新现有账号
+            found = False
             for account in self.accounts['gitee']:
                 if account['username'] == username:
-                    account_exists = True
-                    account.update({
-                        'token': token,
-                        'name': name,
-                        'avatar_url': avatar_url,
-                        'last_used': now
-                    })
+                    # 更新现有账号
+                    account['token'] = token
+                    account['name'] = name
+                    account['avatar_url'] = avatar_url
+                    account['last_used'] = datetime.now().isoformat()
+                    
+                    # 如果没有添加时间，添加
+                    if 'added_at' not in account:
+                        account['added_at'] = datetime.now().isoformat()
+                        
+                    found = True
                     break
-            
-            # 如果不存在则添加新账号
-            if not account_exists:
+                    
+            if not found:
+                # 添加新账号
                 new_account = {
                     'username': username,
                     'token': token,
                     'name': name,
                     'avatar_url': avatar_url,
-                    'added_at': now,
-                    'last_used': now
+                    'added_at': datetime.now().isoformat(),
+                    'last_used': datetime.now().isoformat()
                 }
                 self.accounts['gitee'].append(new_account)
-            
-            # 保存账号信息
+                
+            # 保存账号更新
             self.save_accounts()
             
+            # 设置为当前登录的账号
+            for account in self.accounts['gitee']:
+                if account['username'] == username:
+                    self.current_account = {
+                        'type': 'gitee',
+                        'data': account
+                    }
+                    break
+                    
             # 加载头像
-            if avatar_url:
-                self._load_avatar(username, avatar_url)
-            
-            # 设置为当前账号并触发登录成功信号
-            self.current_account = {
-                'type': 'gitee',
-                'data': self.accounts['gitee'][-1] if not account_exists else next(acc for acc in self.accounts['gitee'] if acc['username'] == username)
-            }
+            self._load_avatar(username, avatar_url)
             
             # 更新最后登录的账号记录
             self.accounts['last_login'] = {
@@ -533,12 +550,17 @@ class EnhancedAccountManager(QObject):
             # 保存账号更新
             self.save_accounts()
             
+            # 发出账号列表变更信号
+            self.accountsChanged.emit()
+            
             # 发出登录成功信号
             self.loginSuccess.emit(self.current_account)
             
+            info(f"成功通过OAuth添加并登录Gitee账号: {username}")
             return True
         except Exception as e:
             error(f"通过OAuth添加Gitee账号时出错: {str(e)}")
+            self.loginFailed.emit(f"添加Gitee账号失败: {str(e)}")
             return False
             
     def login_with_account(self, account_type, username):

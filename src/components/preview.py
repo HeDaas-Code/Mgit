@@ -82,8 +82,8 @@ class MarkdownPreview(QWidget):
         
     def getPreviewStyle(self):
         """ 获取预览样式 """
-        # 检查当前主题
-        is_dark = isDarkTheme()
+        # 总是使用浅色主题，忽略系统设置
+        is_dark = False
         
         # 基础样式
         base_style = """
@@ -183,10 +183,10 @@ class MarkdownPreview(QWidget):
         }
         """
         
-        # 亮色主题样式
-        light_style = """
+        # 样式 - 无论是否深色模式，都使用相同的亮色样式
+        style = """
         .markdown-body {
-            color: #24292e;
+            color: #000000;
             background-color: #ffffff;
         }
         
@@ -230,51 +230,4 @@ class MarkdownPreview(QWidget):
         }
         """
         
-        # 深色主题样式
-        dark_style = """
-        .markdown-body {
-            color: #c9d1d9;
-            background-color: #0d1117;
-        }
-        
-        .markdown-body a {
-            color: #58a6ff;
-            text-decoration: none;
-        }
-        
-        .markdown-body h1, .markdown-body h2 {
-            border-bottom: 1px solid #21262d;
-        }
-        
-        .markdown-body pre {
-            background-color: #161b22;
-        }
-        
-        .markdown-body code {
-            background-color: rgba(240,246,252,0.15);
-            color: #e6edf3;
-        }
-        
-        .markdown-body blockquote {
-            color: #8b949e;
-            border-left: 0.25em solid #30363d;
-        }
-        
-        .markdown-body table th, .markdown-body table td {
-            border: 1px solid #30363d;
-        }
-        
-        .markdown-body table tr {
-            background-color: #0d1117;
-        }
-        
-        .markdown-body table tr:nth-child(2n) {
-            background-color: #161b22;
-        }
-        
-        .markdown-body img {
-            background-color: #0d1117;
-        }
-        """
-        
-        return base_style + (dark_style if is_dark else light_style) 
+        return base_style + style 

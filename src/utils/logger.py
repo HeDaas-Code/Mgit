@@ -488,9 +488,16 @@ class Logger:
         Returns:
             str: 日志文件路径
         """
+        # 先检查是否为LogCategory枚举
         if isinstance(category, LogCategory):
             category = category.value
         
+        # 确保category是一个有效的字符串
+        if not isinstance(category, str) or not category:
+            # 如果category不是有效字符串，使用默认的"系统"类别
+            category = "系统"  # 默认分类
+        
+        # 现在category一定是一个非空字符串，可以安全调用lower()
         return os.path.join(self.category_log_dir, f"{category.lower()}.log")
         
     def export_log(self, target_path=None, include_categories=False):
@@ -651,171 +658,202 @@ class Logger:
             # 不显示确认对话框，直接清理
             clean_logs(confirm=False)
         """
-        if confirm:
-            if older_than_days:
-                confirm_msg = f"将清理{older_than_days}天前的"
-                if category:
-                    category_name = category.value if isinstance(category, LogCategory) else category
-                    confirm_msg += f"{category_name}类别的"
-                confirm_msg += "日志文件，确认继续？"
-            else:
-                confirm_msg = "将清理所有日志文件，此操作不可恢复，确认继续？"
-                
-            try:
-                # 在日志中记录清理操作
-                with logger.contextualize(category="系统", context=""):
-                    logger.warning(f"尝试清理日志: older_than_days={older_than_days}, category={category}")
-                    
-                # 显示确认对话框
-                try:
-                    # 尝试使用GUI对话框确认
-                    from PyQt5.QtWidgets import QMessageBox, QApplication
-                    app = QApplication.instance()
-                    if app is None:
-                        # 如果没有QApplication实例，跳过GUI确认
-                        pass
-                    else:
-                        result = QMessageBox.question(
-                            None, 
-                            "确认清理日志", 
-                            confirm_msg,
-                            QMessageBox.Yes | QMessageBox.No,
-                            QMessageBox.No
-                        )
-                        if result != QMessageBox.Yes:
-                            logger.info("用户取消了日志清理操作")
-                            return {
-                                "total_files": 0,
-                                "deleted_files": 0,
-                                "failed_files": 0,
-                                "skipped_files": 0,
-                                "cancelled": True,
-                                "details": ["用户取消了操作"]
-                            }
-                except ImportError:
-                    # 如果PyQt5不可用，跳过GUI确认
-                    pass
-                except Exception as e:
-                    # 其他错误，跳过GUI确认
-                    logger.warning(f"显示确认对话框失败: {str(e)}")
-            except:
-                pass
-        
-        # 获取要清理的文件列表
-        files_to_clean = []
-        
-        # 计算截止日期
-        cutoff_date = None
-        if older_than_days:
-            cutoff_date = datetime.now() - timedelta(days=older_than_days)
-        
-        # 主日志文件
-        if not category or category in (LogCategory.SYSTEM, "系统"):
-            if os.path.exists(self.log_file):
-                files_to_clean.append(self.log_file)
-        
-        # 错误日志
-        if not category or category in (LogCategory.ERROR, "ERROR", "错误"):
-            if os.path.exists(self.error_log_file):
-                files_to_clean.append(self.error_log_file)
-        
-        # 性能日志
-        if not category or category in (LogCategory.PERFORMANCE, "PERFORMANCE", "性能"):
-            if os.path.exists(self.perf_log_file):
-                files_to_clean.append(self.perf_log_file)
-        
-        # 类别日志
-        if not category:
-            # 清理所有类别
-            for cat in LogCategory:
-                cat_file = self.get_category_log_file(cat)
-                if os.path.exists(cat_file):
-                    files_to_clean.append(cat_file)
-        elif category:
-            # 清理特定类别
-            if isinstance(category, LogCategory) or isinstance(category, str):
-                cat_file = self.get_category_log_file(category)
-                if os.path.exists(cat_file):
-                    files_to_clean.append(cat_file)
-        
-        # 压缩日志文件
-        import glob
-        if not category:
-            # 所有压缩文件
-            zip_pattern = os.path.join(self.log_dir, "*.zip")
-            zip_files = glob.glob(zip_pattern)
-            if cutoff_date:
-                # 按日期筛选
-                for zip_file in zip_files:
-                    try:
-                        file_time = datetime.fromtimestamp(os.path.getmtime(zip_file))
-                        if file_time < cutoff_date:
-                            files_to_clean.append(zip_file)
-                    except:
-                        pass
-            else:
-                # 全部清理
-                files_to_clean.extend(zip_files)
-            
-            # 类别子目录中的压缩文件
-            cat_zip_pattern = os.path.join(self.category_log_dir, "*.zip")
-            cat_zip_files = glob.glob(cat_zip_pattern)
-            if cutoff_date:
-                for zip_file in cat_zip_files:
-                    try:
-                        file_time = datetime.fromtimestamp(os.path.getmtime(zip_file))
-                        if file_time < cutoff_date:
-                            files_to_clean.append(zip_file)
-                    except:
-                        pass
-            else:
-                files_to_clean.extend(cat_zip_files)
-        
-        # 统计
-        result = {
-            "total_files": len(files_to_clean),
-            "deleted_files": 0,
-            "failed_files": 0,
-            "skipped_files": 0,
-            "details": []
-        }
-        
-        # 执行清理
-        for file_path in files_to_clean:
-            try:
-                if cutoff_date:
-                    # 按日期清理
-                    file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                    if file_time < cutoff_date:
-                        os.remove(file_path)
-                        result["deleted_files"] += 1
-                        result["details"].append(f"已删除: {file_path}")
-                    else:
-                        result["skipped_files"] += 1
-                else:
-                    # 清理后重新创建空文件（对于非压缩文件）
-                    if file_path.endswith(".zip"):
-                        os.remove(file_path)
-                    else:
-                        # 对于常规日志文件，清空内容但保留文件
-                        open(file_path, 'w').close()
-                    result["deleted_files"] += 1
-                    result["details"].append(f"已清理: {file_path}")
-            except Exception as e:
-                result["failed_files"] += 1
-                result["details"].append(f"清理失败 {file_path}: {str(e)}")
-        
-        # 记录清理结果
         try:
-            with logger.contextualize(category="系统", context=""):
-                logger.info(f"日志清理完成: 共{result['total_files']}个文件, "
-                         f"已删除/清空{result['deleted_files']}个, "
-                         f"跳过{result['skipped_files']}个, "
-                         f"失败{result['failed_files']}个")
-        except:
-            pass
+            if confirm:
+                if older_than_days:
+                    confirm_msg = f"将清理{older_than_days}天前的"
+                    if category:
+                        # 安全地获取类别名称
+                        if isinstance(category, LogCategory):
+                            category_name = category.value
+                        elif isinstance(category, str):
+                            category_name = category
+                        else:
+                            category_name = str(category)
+                        confirm_msg += f"{category_name}类别的"
+                    confirm_msg += "日志文件，确认继续？"
+                else:
+                    confirm_msg = "将清理所有日志文件，此操作不可恢复，确认继续？"
+                    
+                try:
+                    # 在日志中记录清理操作
+                    with logger.contextualize(category="系统", context=""):
+                        logger.warning(f"尝试清理日志: older_than_days={older_than_days}, category={category}")
+                        
+                    # 显示确认对话框
+                    try:
+                        # 尝试使用GUI对话框确认
+                        from PyQt5.QtWidgets import QMessageBox, QApplication
+                        app = QApplication.instance()
+                        if app is None:
+                            # 如果没有QApplication实例，跳过GUI确认
+                            pass
+                        else:
+                            result = QMessageBox.question(
+                                None, 
+                                "确认清理日志", 
+                                confirm_msg,
+                                QMessageBox.Yes | QMessageBox.No,
+                                QMessageBox.No
+                            )
+                            if result != QMessageBox.Yes:
+                                logger.info("用户取消了日志清理操作")
+                                return {
+                                    "total_files": 0,
+                                    "deleted_files": 0,
+                                    "failed_files": 0,
+                                    "skipped_files": 0,
+                                    "cancelled": True,
+                                    "details": ["用户取消了操作"]
+                                }
+                    except ImportError:
+                        # 如果PyQt5不可用，跳过GUI确认
+                        pass
+                    except Exception as e:
+                        # 其他错误，跳过GUI确认
+                        logger.warning(f"显示确认对话框失败: {str(e)}")
+                except:
+                    pass
             
-        return result
+            # 获取要清理的文件列表
+            files_to_clean = []
+            
+            # 计算截止日期
+            cutoff_date = None
+            if older_than_days:
+                cutoff_date = datetime.now() - timedelta(days=older_than_days)
+            
+            # 安全地检查category是否为特定的值
+            def is_category_match(cat_to_check, reference):
+                """安全地检查类别是否匹配"""
+                if isinstance(cat_to_check, LogCategory) and isinstance(reference, LogCategory):
+                    return cat_to_check == reference
+                elif isinstance(cat_to_check, LogCategory) and isinstance(reference, str):
+                    return cat_to_check.value == reference
+                elif isinstance(cat_to_check, str) and isinstance(reference, LogCategory):
+                    return cat_to_check == reference.value
+                else:
+                    return str(cat_to_check) == str(reference)
+            
+            # 主日志文件
+            if not category or is_category_match(category, LogCategory.SYSTEM) or is_category_match(category, "系统"):
+                if os.path.exists(self.log_file):
+                    files_to_clean.append(self.log_file)
+            
+            # 错误日志
+            if not category or is_category_match(category, LogCategory.ERROR) or is_category_match(category, "ERROR") or is_category_match(category, "错误"):
+                if os.path.exists(self.error_log_file):
+                    files_to_clean.append(self.error_log_file)
+            
+            # 性能日志
+            if not category or is_category_match(category, LogCategory.PERFORMANCE) or is_category_match(category, "PERFORMANCE") or is_category_match(category, "性能"):
+                if os.path.exists(self.perf_log_file):
+                    files_to_clean.append(self.perf_log_file)
+            
+            # 类别日志
+            if not category:
+                # 清理所有类别
+                for cat in LogCategory:
+                    cat_file = self.get_category_log_file(cat)
+                    if os.path.exists(cat_file):
+                        files_to_clean.append(cat_file)
+            elif category:
+                # 清理特定类别 - 使用更健壮的方式
+                try:
+                    cat_file = self.get_category_log_file(category)
+                    if os.path.exists(cat_file):
+                        files_to_clean.append(cat_file)
+                except Exception as e:
+                    logger.warning(f"获取类别日志文件路径失败: {str(e)}")
+            
+            # 压缩日志文件
+            import glob
+            if not category:
+                # 所有压缩文件
+                zip_pattern = os.path.join(self.log_dir, "*.zip")
+                zip_files = glob.glob(zip_pattern)
+                if cutoff_date:
+                    # 按日期筛选
+                    for zip_file in zip_files:
+                        try:
+                            file_time = datetime.fromtimestamp(os.path.getmtime(zip_file))
+                            if file_time < cutoff_date:
+                                files_to_clean.append(zip_file)
+                        except Exception as e:
+                            logger.warning(f"检查压缩文件日期时出错: {str(e)}")
+                else:
+                    # 全部清理
+                    files_to_clean.extend(zip_files)
+                
+                # 类别子目录中的压缩文件
+                cat_zip_pattern = os.path.join(self.category_log_dir, "*.zip")
+                cat_zip_files = glob.glob(cat_zip_pattern)
+                if cutoff_date:
+                    for zip_file in cat_zip_files:
+                        try:
+                            file_time = datetime.fromtimestamp(os.path.getmtime(zip_file))
+                            if file_time < cutoff_date:
+                                files_to_clean.append(zip_file)
+                        except Exception as e:
+                            logger.warning(f"检查类别压缩文件日期时出错: {str(e)}")
+                else:
+                    files_to_clean.extend(cat_zip_files)
+            
+            # 统计
+            result = {
+                "total_files": len(files_to_clean),
+                "deleted_files": 0,
+                "failed_files": 0,
+                "skipped_files": 0,
+                "details": []
+            }
+            
+            # 执行清理
+            for file_path in files_to_clean:
+                try:
+                    if cutoff_date:
+                        # 按日期清理
+                        file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                        if file_time < cutoff_date:
+                            os.remove(file_path)
+                            result["deleted_files"] += 1
+                            result["details"].append(f"已删除: {file_path}")
+                        else:
+                            result["skipped_files"] += 1
+                    else:
+                        # 清理后重新创建空文件（对于非压缩文件）
+                        if file_path.endswith(".zip"):
+                            os.remove(file_path)
+                        else:
+                            # 对于常规日志文件，清空内容但保留文件
+                            open(file_path, 'w').close()
+                        result["deleted_files"] += 1
+                        result["details"].append(f"已清理: {file_path}")
+                except Exception as e:
+                    result["failed_files"] += 1
+                    result["details"].append(f"清理失败 {file_path}: {str(e)}")
+            
+            # 记录清理结果
+            try:
+                with logger.contextualize(category="系统", context=""):
+                    logger.info(f"日志清理完成: 共{result['total_files']}个文件, "
+                             f"已删除/清空{result['deleted_files']}个, "
+                             f"跳过{result['skipped_files']}个, "
+                             f"失败{result['failed_files']}个")
+            except Exception as e:
+                logger.error(f"记录日志清理结果时出错: {str(e)}")
+                
+            return result
+        except Exception as e:
+            logger.error(f"日志清理操作失败: {str(e)}")
+            return {
+                "total_files": 0,
+                "deleted_files": 0,
+                "failed_files": 0,
+                "skipped_files": 0,
+                "error": str(e),
+                "details": [f"日志清理操作失败: {str(e)}"]
+            }
     
     def set_context(self, **kwargs):
         """设置当前线程的日志上下文
@@ -907,17 +945,26 @@ def get_category_size(category):
     Returns:
         int: 日志大小（字节）
     """
-    if isinstance(category, LogCategory):
-        category = category.value
-    
     try:
+        if isinstance(category, LogCategory):
+            category_name = category.value
+        elif isinstance(category, str):
+            category_name = category
+        else:
+            # 非法类型，使用默认的系统类别
+            warning(f"无效的日志类别类型 {type(category)}, 使用默认系统类别")
+            category_name = "系统"
+        
+        # 获取Logger实例
+        logger_instance = Logger()
+        
         # 获取类别日志文件路径
-        log_file = log.get_category_log_file(category)
+        log_file = logger_instance.get_category_log_file(category_name)
         
         # 如果文件存在，返回文件大小
         if os.path.exists(log_file):
             return os.path.getsize(log_file)
         return 0
     except Exception as e:
-        logger.error(f"获取分类 {category} 大小时出错: {str(e)}")
+        error(f"获取分类 {category} 大小时出错: {str(e)}")
         return 0 

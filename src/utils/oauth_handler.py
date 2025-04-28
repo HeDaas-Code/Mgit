@@ -368,6 +368,9 @@ class OAuthHandler(QObject):
             config_dir = os.path.join(home_dir, '.mgit')
             key_file = os.path.join(config_dir, 'key.dat')
             
+            if not os.path.exists(config_dir):
+                os.makedirs(config_dir)
+                
             if os.path.exists(key_file):
                 # 加载现有密钥
                 with open(key_file, 'rb') as f:
@@ -375,10 +378,20 @@ class OAuthHandler(QObject):
                     
                 # 创建Fernet实例
                 self.fernet = Fernet(self.key)
+                info("OAuth加密已使用已有密钥初始化")
             else:
-                # 如果密钥不存在，等待账号管理器创建
-                self.fernet = None
-                warning("OAuth加密初始化失败：密钥文件不存在")
+                # 如果密钥不存在，则创建新密钥 (这部分通常由账号管理器完成，这里作为备用)
+                try:
+                    info("创建新的加密密钥")
+                    self.key = Fernet.generate_key()
+                    with open(key_file, 'wb') as f:
+                        f.write(self.key)
+                    self.fernet = Fernet(self.key)
+                    info("已创建并保存新的加密密钥")
+                except Exception as e:
+                    error(f"创建加密密钥失败: {str(e)}")
+                    self.fernet = None
+                    return
         except Exception as e:
             error(f"OAuth加密初始化失败: {str(e)}")
             self.fernet = None
@@ -393,6 +406,11 @@ class OAuthHandler(QObject):
                 return False
                 
         try:
+            # 确保配置目录存在
+            config_dir = os.path.dirname(self.config_file)
+            if not os.path.exists(config_dir):
+                os.makedirs(config_dir)
+                
             # 构建配置数据
             config_data = {
                 'github': {
@@ -402,18 +420,32 @@ class OAuthHandler(QObject):
                 'gitee': {
                     'client_id': self.gitee_client_id,
                     'client_secret': self.gitee_client_secret
-                }
+                },
+                # 添加版本号和时间戳，便于将来可能的配置迁移
+                'version': '2.0',
+                'timestamp': datetime.now().isoformat()
             }
             
             # 序列化并加密
             json_data = json.dumps(config_data, ensure_ascii=False)
             encrypted_data = self.fernet.encrypt(json_data.encode('utf-8'))
             
-            # 保存加密数据
-            with open(self.config_file, 'wb') as f:
+            # 使用临时文件模式保存，避免写入中断导致配置文件损坏
+            temp_file = self.config_file + '.tmp'
+            with open(temp_file, 'wb') as f:
                 f.write(encrypted_data)
                 
-            info("OAuth配置已加密保存")
+            # 替换原文件
+            if os.path.exists(self.config_file):
+                # 保留原文件备份
+                backup_file = self.config_file + '.bak'
+                if os.path.exists(backup_file):
+                    os.remove(backup_file)
+                os.rename(self.config_file, backup_file)
+                
+            os.rename(temp_file, self.config_file)
+                
+            info("OAuth配置已安全加密保存")
             return True
         except Exception as e:
             error(f"保存OAuth配置失败: {str(e)}")
@@ -429,11 +461,12 @@ class OAuthHandler(QObject):
                 return False
                 
         try:
+            # 首先尝试加载主配置文件
             if os.path.exists(self.config_file):
-                with open(self.config_file, 'rb') as f:
-                    encrypted_data = f.read()
-                    
                 try:
+                    with open(self.config_file, 'rb') as f:
+                        encrypted_data = f.read()
+                        
                     # 解密数据
                     decrypted_data = self.fernet.decrypt(encrypted_data)
                     config = json.loads(decrypted_data.decode('utf-8'))
@@ -450,7 +483,37 @@ class OAuthHandler(QObject):
                     info("OAuth配置已从加密存储加载")
                     return True
                 except Exception as e:
-                    error(f"解密OAuth配置失败: {str(e)}")
+                    error(f"解密主配置文件失败: {str(e)}")
+                    
+                    # 尝试加载备份文件
+                    backup_file = self.config_file + '.bak'
+                    if os.path.exists(backup_file):
+                        try:
+                            info("尝试从备份文件加载配置")
+                            with open(backup_file, 'rb') as f:
+                                encrypted_data = f.read()
+                                
+                            # 解密数据
+                            decrypted_data = self.fernet.decrypt(encrypted_data)
+                            config = json.loads(decrypted_data.decode('utf-8'))
+                            
+                            # 更新配置
+                            if 'github' in config:
+                                self.github_client_id = config['github'].get('client_id', '')
+                                self.github_client_secret = config['github'].get('client_secret', '')
+                                
+                            if 'gitee' in config:
+                                self.gitee_client_id = config['gitee'].get('client_id', '')
+                                self.gitee_client_secret = config['gitee'].get('client_secret', '')
+                                
+                            info("OAuth配置已从备份文件加载")
+                            
+                            # 保存到主配置文件
+                            self.save_oauth_config()
+                            return True
+                        except Exception as backup_e:
+                            error(f"从备份加载配置也失败: {str(backup_e)}")
+                            return False
                     return False
             else:
                 debug("OAuth配置文件不存在，使用默认值")

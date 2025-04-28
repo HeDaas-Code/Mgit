@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                           QLabel, QLineEdit, QComboBox, QProgressBar,
                           QListWidget, QListWidgetItem, QMessageBox, QMenu,
                           QAction, QSplitter, QDialog, QFormLayout, QCheckBox, QFileDialog,
-                          QInputDialog)
+                          QInputDialog, QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit)
 from PyQt5.QtCore import Qt, pyqtSignal, QSize
 from PyQt5.QtGui import QIcon, QCursor, QFont
 from qfluentwidgets import (PrimaryPushButton, TransparentToolButton, ToolButton, 
@@ -24,9 +24,10 @@ from src.utils.enhanced_account_manager import EnhancedAccountManager
 from src.utils.git_manager import GitManager
 from src.utils.git_thread import GitThread
 from src.utils.config_manager import ConfigManager
-from src.utils.logger import info, warning, error, debug
+from src.utils.logger import info, warning, error, debug, Logger, LogCategory
 from src.components.loading_mask import LoadingMask
 from src.components.account_panel import AccountPanel
+from src.components.branch_manager import BranchManagerDialog
 
 class GitPanel(QWidget):
     """ Git面板组件 """
@@ -41,6 +42,9 @@ class GitPanel(QWidget):
         self.currentPath = ""
         self.configManager = ConfigManager()
         self.recentReposList = []
+        
+        # 添加一个标志，防止updateBranchCombo触发onBranchSelected回调
+        self.isUpdatingBranchCombo = False
         
         # 创建Git线程
         self.gitThread = GitThread(self)
@@ -767,9 +771,10 @@ class GitPanel(QWidget):
                         "description": f"由MGit创建的仓库 - {repo_name}",
                         "private": 1 if is_private else 0,
                         # 设置不创建任何初始文件
-                        "auto_init": False,
-                        "gitignore_template": "",
-                        "license_template": ""
+                        "auto_init": False
+                        # 删除以下两个有问题的参数
+                        # "gitignore_template": "",
+                        # "license_template": ""
                     }
                     
                     response = requests.post(
@@ -843,7 +848,7 @@ class GitPanel(QWidget):
                         elif platform == "gitlab":
                             authenticated_url = remote_url.replace('https://', f'https://oauth2:{account_data["token"]}@')
                         elif platform == "gitee":
-                            authenticated_url = remote_url.replace('https://', f'https://{account_data["token"]}@')
+                            authenticated_url = remote_url.replace('https://', f'https://{account_data["username"]}:{account_data["token"]}@')
                         
                         # 推送本地内容到远程仓库
                         info(f"正在将本地仓库推送至远程: {remote_url}")
@@ -885,7 +890,7 @@ class GitPanel(QWidget):
                 "请登录账号后，再次尝试创建远程仓库。"
             )
 
-    def refreshStatus(self):
+    def refreshStatus(self, update_branch_combo=True):
         """ 刷新Git状态 """
         if not self.gitManager:
             return
@@ -921,9 +926,10 @@ class GitPanel(QWidget):
                 item.setSizeHint(widget.sizeHint())
                 self.changesList.addItem(item)
                 self.changesList.setItemWidget(item, widget)
-                
-            # 更新分支下拉框
-            self.updateBranchCombo()
+            
+            # 更新分支下拉框（如果需要）
+            if update_branch_combo:
+                self.updateBranchCombo()
             
             # 检查远程仓库状态并更新UI
             remotes = self.gitManager.getRemotes()
@@ -937,12 +943,23 @@ class GitPanel(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "错误", f"刷新状态失败: {str(e)}")
             
+    def onBranchSwitched(self, branch_name):
+        """处理分支切换事件"""
+        info(f"已切换到分支: {branch_name}", category=LogCategory.REPOSITORY)
+        # 先更新分支下拉框，避免refreshStatus中再次更新导致循环
+        self.updateBranchCombo()
+        # 刷新状态但不更新分支下拉框
+        self.refreshStatus(update_branch_combo=False)
+    
     def updateBranchCombo(self):
         """ 更新分支下拉框 """
         if not self.gitManager:
             return
             
         try:
+            # 设置标志，防止触发onBranchSelected回调
+            self.isUpdatingBranchCombo = True
+            
             # 获取当前分支
             currentBranch = self.gitManager.getCurrentBranch()
             
@@ -968,9 +985,16 @@ class GitPanel(QWidget):
                 
         except Exception as e:
             print(f"更新分支下拉框失败: {e}")
+        finally:
+            # 恢复标志
+            self.isUpdatingBranchCombo = False
             
     def onBranchSelected(self, index):
         """ 处理选择分支 """
+        # 如果是由updateBranchCombo方法触发的，则忽略
+        if self.isUpdatingBranchCombo:
+            return
+            
         if index < 0 or not self.gitManager:
             return
             
@@ -988,7 +1012,8 @@ class GitPanel(QWidget):
                 
                 if reply == QMessageBox.Yes:
                     self.gitManager.checkoutBranch(selectedBranch)
-                    self.refreshStatus()
+                    # 刷新状态但不更新分支下拉框，避免循环
+                    self.refreshStatus(update_branch_combo=False)
                     
                     InfoBar.success(
                         title="切换分支成功",
@@ -1000,18 +1025,22 @@ class GitPanel(QWidget):
                         parent=self
                     )
                 else:
-                    # 恢复选中当前分支
+                    # 恢复选中当前分支，使用isUpdatingBranchCombo标志防止触发回调
+                    self.isUpdatingBranchCombo = True
                     index = self.branchCombo.findText(currentBranch)
                     if index >= 0:
                         self.branchCombo.setCurrentIndex(index)
+                    self.isUpdatingBranchCombo = False
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"切换分支失败: {str(e)}")
                 
-                # 恢复选中当前分支
+                # 恢复选中当前分支，使用isUpdatingBranchCombo标志防止触发回调
+                self.isUpdatingBranchCombo = True
                 index = self.branchCombo.findText(currentBranch)
                 if index >= 0:
                     self.branchCombo.setCurrentIndex(index)
-                
+                self.isUpdatingBranchCombo = False
+    
     def showBranchMenu(self):
         """ 显示分支菜单 """
         if not self.gitManager:
@@ -1762,44 +1791,181 @@ class GitPanel(QWidget):
         self.gitThread.start()
 
     def pullChanges(self):
-        """ 拉取更改 """
+        """从远程拉取更改"""
+        # 检查是否有活动仓库
         if not self.gitManager:
+            QMessageBox.warning(self, "警告", "请先打开或初始化一个仓库")
             return
             
         # 确保存在远程仓库
         if not self.ensureRemoteExists("拉取"):
             return
             
-        # 获取远程仓库列表
-        remotes = self.gitManager.getRemotes()
+        # 获取当前分支名
+        current_branch = self.gitManager.getCurrentBranch()
         
-        remote_name = None
-        # 如果有多个远程仓库，让用户选择
-        if len(remotes) > 1:
-            remote_items = [remote for remote in remotes]
-            remote_name, ok = QInputDialog.getItem(
-                self, "选择远程仓库", 
-                "请选择要拉取的远程仓库:",
-                remote_items, 0, False
-            )
-            
-            if not ok or not remote_name:
-                return
-        else:
-            remote_name = remotes[0]
-        
-        # 获取当前分支
-        branch = self.gitManager.getCurrentBranch()
-        
-        # 使用Git线程执行拉取操作
-        self.gitThread.setup(
-            operation='pull',
-            git_manager=self.gitManager,
-            remote_name=remote_name,
-            branch=branch
+        # 启动拉取操作
+        self.gitThread.startOperation(
+            "pull",
+            self.gitManager.pull,
+            current_branch
         )
-        self.gitThread.start()
 
+    def manageBranches(self):
+        """管理分支，打开分支管理对话框"""
+        # 检查是否有活动仓库
+        if not self.gitManager:
+            QMessageBox.warning(self, "警告", "请先打开或初始化一个仓库")
+            return
+            
+        # 创建对话框
+        dialog = BranchManagerDialog(self.gitManager, self)
+        
+        # 连接信号
+        dialog.branchSwitched.connect(self.onBranchSwitched)
+        dialog.branchCreated.connect(self.onBranchCreated)
+        dialog.branchDeleted.connect(self.onBranchDeleted)
+        dialog.branchMerged.connect(self.onBranchMerged)
+        
+        # 显示对话框
+        dialog.exec_()
+        
+    def onBranchCreated(self, branch_name):
+        """处理分支创建事件"""
+        info(f"已创建分支: {branch_name}", category=LogCategory.REPOSITORY)
+        # 更新分支下拉框
+        self.updateBranchCombo()
+        
+    def onBranchDeleted(self, branch_name):
+        """处理分支删除事件"""
+        info(f"已删除分支: {branch_name}", category=LogCategory.REPOSITORY)
+        # 更新分支下拉框
+        self.updateBranchCombo()
+        
+    def onBranchMerged(self, source_branch, target_branch):
+        """处理分支合并事件"""
+        info(f"已将分支 '{source_branch}' 合并到 '{target_branch}'", category=LogCategory.REPOSITORY)
+        # 刷新状态
+        self.refreshStatus()
+
+    def viewHistory(self):
+        """查看提交历史记录"""
+        # 检查是否有活动仓库
+        if not self.gitManager:
+            QMessageBox.warning(self, "警告", "请先打开或初始化一个仓库")
+            return
+            
+        # 获取提交历史
+        try:
+            # 提交的最大数量
+            max_count = 50
+            
+            commits = self.gitManager.getCommitHistory(count=max_count)
+            
+            # 创建历史记录对话框
+            from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView, QPushButton, QSplitter, QTextEdit, QLabel
+            
+            dialog = QDialog(self)
+            dialog.setWindowTitle("提交历史")
+            dialog.setMinimumSize(800, 600)
+            dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowMaximizeButtonHint)
+            
+            layout = QVBoxLayout(dialog)
+            
+            # 分割器：上方是提交列表，下方是提交详情
+            splitter = QSplitter(Qt.Vertical)
+            layout.addWidget(splitter)
+            
+            # 上方：提交列表
+            table = QTableWidget()
+            table.setColumnCount(4)
+            table.setHorizontalHeaderLabels(["提交ID", "作者", "日期", "提交消息"])
+            table.setRowCount(len(commits))
+            table.setSelectionBehavior(QTableWidget.SelectRows)
+            table.setEditTriggers(QTableWidget.NoEditTriggers)
+            
+            # 设置列宽
+            table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+            table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+            table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+            
+            # 填充提交数据
+            for i, commit in enumerate(commits):
+                # 提交ID (短版本)
+                commit_id_item = QTableWidgetItem(commit['hash'][:8])
+                table.setItem(i, 0, commit_id_item)
+                
+                # 作者
+                author_item = QTableWidgetItem(commit['author'])
+                table.setItem(i, 1, author_item)
+                
+                # 日期
+                date_item = QTableWidgetItem(commit['date'])
+                table.setItem(i, 2, date_item)
+                
+                # 提交消息
+                message_item = QTableWidgetItem(commit['message'])
+                table.setItem(i, 3, message_item)
+            
+            splitter.addWidget(table)
+            
+            # 下方：提交详情
+            details_widget = QWidget()
+            details_layout = QVBoxLayout(details_widget)
+            
+            details_title = QLabel("提交详情")
+            details_title.setFont(QFont("Arial", 12, QFont.Bold))
+            details_layout.addWidget(details_title)
+            
+            details_text = QTextEdit()
+            details_text.setReadOnly(True)
+            details_layout.addWidget(details_text)
+            
+            splitter.addWidget(details_widget)
+            
+            # 设置默认分割比例
+            splitter.setSizes([400, 200])
+            
+            # 当选择提交时显示详情
+            def on_commit_selected():
+                selected_rows = table.selectedItems()
+                if not selected_rows:
+                    return
+                    
+                row = selected_rows[0].row()
+                commit_hash = commits[row]['hash']
+                
+                # 获取更详细的提交信息
+                try:
+                    # 使用GitManager的getCommitDetails方法
+                    commit_details = self.gitManager.getCommitDetails(commit_hash)
+                    details_text.setText(commit_details)
+                except Exception as e:
+                    details_text.setText(f"无法获取详细信息: {str(e)}")
+            
+            table.itemSelectionChanged.connect(on_commit_selected)
+            
+            # 如果有提交，默认选择第一个
+            if commits:
+                table.selectRow(0)
+            
+            # 底部按钮
+            buttons_layout = QHBoxLayout()
+            
+            close_btn = QPushButton("关闭")
+            close_btn.clicked.connect(dialog.close)
+            buttons_layout.addWidget(close_btn)
+            
+            layout.addLayout(buttons_layout)
+            
+            # 显示对话框
+            dialog.exec_()
+            
+        except Exception as e:
+            error(f"无法获取提交历史: {str(e)}")
+            QMessageBox.critical(self, "错误", f"无法获取提交历史: {str(e)}")
+    
     def importFromGitHub(self):
         """ 从GitHub导入仓库 """
         if not self.gitManager:
