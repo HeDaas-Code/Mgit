@@ -41,19 +41,22 @@ def build_app():
     system = platform.system()
     print(f"系统类型: {system}")
     
-    # 获取脚本所在目录
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(base_dir)
-    print(f"工作目录: {base_dir}")
+    # 获取脚本所在目录及项目根目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(script_dir)  # 项目根目录在脚本目录的上一级
+    os.chdir(root_dir)  # 切换到项目根目录
+    print(f"脚本目录: {script_dir}")
+    print(f"项目根目录: {root_dir}")
+    print(f"当前工作目录: {os.getcwd()}")
     
     # 检查虚拟环境
-    venv_dir = os.path.join(base_dir, "venv")
+    venv_dir = os.path.join(root_dir, "venv")
     if not os.path.exists(venv_dir):
         print(f"错误: 未找到虚拟环境: {venv_dir}")
         sys.exit(1)
     
     # 检查图标文件
-    icon_file = os.path.join(base_dir, "app.ico")
+    icon_file = os.path.join(root_dir, "app.ico")
     if not os.path.exists(icon_file):
         print(f"错误: 未找到图标文件: {icon_file}")
         sys.exit(1)
@@ -86,14 +89,14 @@ def build_app():
             sys.exit(1)
     
     # 确保spec文件存在
-    spec_file = os.path.join(base_dir, "MGit.spec")
+    spec_file = os.path.join(root_dir, "MGit.spec")
     if not os.path.exists(spec_file):
         print(f"错误: 未找到spec文件: {spec_file}")
         sys.exit(1)
     
     # 清理旧的构建产物
-    dist_dir = os.path.join(base_dir, "dist")
-    build_dir = os.path.join(base_dir, "build")
+    dist_dir = os.path.join(root_dir, "dist")
+    build_dir = os.path.join(root_dir, "build")
     
     if os.path.exists(dist_dir):
         print(f"正在清理旧的dist目录: {dist_dir}")
@@ -103,10 +106,13 @@ def build_app():
         print(f"正在清理旧的build目录: {build_dir}")
         shutil.rmtree(build_dir)
     
+    # 将工作目录设置为项目根目录，确保PyInstaller能正确找到所有资源
+    os.chdir(root_dir)
+    
     # 使用PyInstaller打包应用
     print("开始打包...")
-    command = f'"{pyinstaller_exe}" --clean MGit.spec'
-    result = run_command(command)
+    command = f'"{pyinstaller_exe}" --clean "{spec_file}"'
+    result = run_command(command, cwd=root_dir)
     
     if result != 0:
         print("打包失败")
