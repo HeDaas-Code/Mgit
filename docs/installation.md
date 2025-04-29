@@ -11,10 +11,10 @@
 ## 安装步骤
 
 
-### 从已编译运行
+### 从自动配置运行
 
 
-下载已发布的EXE文件
+下载已发布的安装文件
 
 运行！
 
@@ -138,66 +138,14 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-### 3. 安装打包环境依赖
+### 3. 安装自配置环境依赖
 
 ```bash
 pip install -r requirements.txt
 pip install pyinstaller
 ```
 
-### 4. 编辑/创建spec文件
-
+### 4.  编译自配置文件
 ```bash
-#规范示例
-# -*- mode: python ; coding: utf-8 -*-
-
-block_cipher = None
-
-a = Analysis(
-    ['main.py'],
-    pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=[],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
-    noarchive=False,
-)
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    [],
-    name='main',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=True,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon='app.ico',
-)
-
-```
-
-### 5.执行构建bat
-
-
-```bash
-cmd build.bat
+pyinstaller --onefile --windowed --splash icon.png(闪屏) --icon=app.ico(图标) start.py
 ```

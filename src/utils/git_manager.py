@@ -155,6 +155,22 @@ class GitManager:
             
         return commits
         
+    def getCommitDetails(self, commit_hash):
+        """ 获取提交详情
+        Args:
+            commit_hash: 提交的哈希值
+        Returns:
+            str: 格式化的提交详情
+        """
+        if not self.isValidRepo():
+            return "无效的Git仓库"
+            
+        try:
+            # 使用Git命令获取详细信息
+            return self.repo.git.show(commit_hash, pretty='fuller', name_only=False, name_status=True)
+        except Exception as e:
+            return f"无法获取提交详情: {str(e)}"
+        
     def stage(self, file_paths):
         """ 暂存文件 """
         if not self.isValidRepo():

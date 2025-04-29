@@ -23,4 +23,8 @@ pillow>=9.0.0
 ntplib>=0.4.0
 
 # 辅助库
-python-dateutil>=2.8.0 
+python-dateutil>=2.8.0
+loguru>=0.7.0  # 高级日志记录库
+
+# 插件系统
+pluginbase>=1.0.0 
