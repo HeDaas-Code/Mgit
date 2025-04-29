@@ -1237,7 +1237,7 @@ class AccountPanel(QWidget):
         if hasattr(self, 'accountSelector') and self.accountSelector:
             # 账号选择器的更新可以在这里实现，如果需要
             pass
-
+            
     def showTwoFactorManagement(self):
         """显示两因素认证管理对话框"""
         # 检查是否有当前账号
