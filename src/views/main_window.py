@@ -1261,6 +1261,219 @@ class MainWindow(QMainWindow):
         """ 切换自动保存到焦点变化 """
         self.configManager.set_auto_save_on_focus_change(self.autoSaveOnFocusAction.isChecked())
 
+<<<<<<< Updated upstream
     def setAutoSaveInterval(self, seconds):
         """ 设置自动保存间隔 """
         self.configManager.set_auto_save_interval(seconds) 
+=======
+    def showAboutDialog(self):
+        """ 显示关于对话框 """
+        from PyQt5.QtWidgets import QMessageBox
+        
+        QMessageBox.about(
+            self,
+            "关于 MGit",
+            "<h3>MGit - Markdown笔记与Git版本控制</h3>"
+            "<p>一个专为Markdown笔记设计的Git版本控制工具</p>"
+            "<p>版本: 1.0.0</p>"
+            "<p>© 2025 MGit 团队</p>"
+        )
+
+    def openRepositoryDialog(self):
+        """打开仓库对话框"""
+        from PyQt5.QtWidgets import QFileDialog
+        
+        dir_path = QFileDialog.getExistingDirectory(self, "选择Git仓库目录")
+        if dir_path:
+            self.openRepository(dir_path)
+            
+    def undoEdit(self):
+        """撤销编辑操作"""
+        if hasattr(self, 'editor') and hasattr(self.editor, 'editor'):
+            self.editor.editor.undo()
+            
+    def redoEdit(self):
+        """重做编辑操作"""
+        if hasattr(self, 'editor') and hasattr(self.editor, 'editor'):
+            self.editor.editor.redo()
+            
+    def showFindDialog(self):
+        """显示查找对话框"""
+        if hasattr(self, 'editor') and hasattr(self.editor, 'showFindDialog'):
+            self.editor.showFindDialog()
+            
+    def showReplaceDialog(self):
+        """显示替换对话框"""
+        if hasattr(self, 'editor') and hasattr(self.editor, 'showReplaceDialog'):
+            self.editor.showReplaceDialog()
+            
+    def toggleExplorer(self):
+        """切换文件资源管理器显示状态"""
+        if hasattr(self, 'fileExplorer') and hasattr(self, 'leftSplitter'):
+            visible = self.toggleExplorerAction.isChecked()
+            if not visible:
+                # 保存当前大小
+                self.fileExplorerSize = self.leftSplitter.sizes()[0]
+                # 隐藏
+                sizes = self.leftSplitter.sizes()
+                self.leftSplitter.setSizes([0, sizes[1]])
+            else:
+                # 显示并恢复大小
+                sizes = self.leftSplitter.sizes()
+                if hasattr(self, 'fileExplorerSize'):
+                    self.leftSplitter.setSizes([self.fileExplorerSize, sizes[1]])
+                else:
+                    self.leftSplitter.setSizes([200, sizes[1]])
+                    
+    def togglePreview(self):
+        """切换Markdown预览显示状态"""
+        if hasattr(self, 'preview') and hasattr(self, 'editorSplitter'):
+            visible = self.togglePreviewAction.isChecked()
+            sizes = self.editorSplitter.sizes()
+            if not visible:
+                # 保存当前大小
+                self.previewSize = sizes[1]
+                # 隐藏
+                self.editorSplitter.setSizes([sizes[0] + sizes[1], 0])
+            else:
+                # 显示并恢复大小
+                if hasattr(self, 'previewSize') and self.previewSize:
+                    self.editorSplitter.setSizes([sizes[0], self.previewSize])
+                else:
+                    # 默认分配大小
+                    total = sum(sizes)
+                    self.editorSplitter.setSizes([total // 2, total // 2])
+                    
+    def toggleGitPanel(self):
+        """切换Git面板显示状态"""
+        if hasattr(self, 'gitPanel') and hasattr(self, 'mainSplitter'):
+            visible = self.toggleGitPanelAction.isChecked()
+            if not visible:
+                # 保存当前大小
+                sizes = self.mainSplitter.sizes()
+                self.gitPanelSize = sizes[2]
+                # 隐藏
+                self.mainSplitter.setSizes([sizes[0], sizes[1] + sizes[2], 0])
+            else:
+                # 显示并恢复大小
+                sizes = self.mainSplitter.sizes()
+                if hasattr(self, 'gitPanelSize') and self.gitPanelSize:
+                    self.mainSplitter.setSizes([sizes[0], sizes[1] - self.gitPanelSize, self.gitPanelSize])
+                else:
+                    # 默认分配大小
+                    self.mainSplitter.setSizes([sizes[0], sizes[1] - 250, 250])
+            
+    def commitChanges(self):
+        """提交变更"""
+        if hasattr(self, 'gitPanel'):
+            self.gitPanel.commitChanges()
+            
+    def pushChanges(self):
+        """推送变更"""
+        if hasattr(self, 'gitPanel'):
+            self.gitPanel.pushChanges()
+            
+    def pullChanges(self):
+        """拉取变更"""
+        if hasattr(self, 'gitPanel'):
+            self.gitPanel.pullChanges()
+            
+    def manageBranches(self):
+        """管理分支"""
+        if hasattr(self, 'gitPanel'):
+            self.gitPanel.manageBranches()
+            
+    def viewHistory(self):
+        """查看历史"""
+        if hasattr(self, 'gitPanel'):
+            self.gitPanel.viewHistory()
+            
+    def checkForUpdates(self):
+        """检查应用更新"""
+        from PyQt5.QtWidgets import QMessageBox
+        QMessageBox.information(
+            self, 
+            "检查更新", 
+            "当前版本已是最新版本。"
+        )
+        
+    def openDevTools(self):
+        """打开开发者工具"""
+        from PyQt5.QtWidgets import QMessageBox
+        
+        # 查找开发者工具插件
+        dev_plugin = None
+        for plugin_name, plugin in self.pluginManager.plugins.items():
+            if plugin.name == "开发者工具":
+                dev_plugin = plugin
+                break
+        
+        # 检查插件是否存在并且启用
+        if dev_plugin and dev_plugin.enabled:
+            # 调用插件的open_dev_tools方法
+            dev_plugin.open_dev_tools()
+        else:
+            QMessageBox.information(self, "开发者工具未启用", '开发者工具插件未安装或未启用。\n\n请在插件管理器中启用"开发者工具"插件后再试。')
+    
+    def loadFile(self, file_path):
+        """加载文件到编辑器
+        
+        Args:
+            file_path: 文件路径
+        """
+        if hasattr(self, 'editor'):
+            try:
+                # 检查是否为文本文件
+                import os
+                _, ext = os.path.splitext(file_path)
+                text_exts = ['.txt', '.md', '.markdown', '.py', '.js', '.html', '.css', '.json', '.xml', '.yml', '.yaml']
+                
+                if ext.lower() in text_exts:
+                    # 加载文件内容到编辑器
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    self.editor.setPlainText(content)
+                    self.editor.currentFilePath = file_path
+                    self.statusBar.setCurrentFile(file_path)
+                    
+                    # 如果是Markdown文件，更新预览
+                    if ext.lower() in ['.md', '.markdown']:
+                        self.updatePreview()
+                else:
+                    from PyQt5.QtWidgets import QMessageBox
+                    QMessageBox.warning(self, "不支持的文件类型", f"不支持编辑 {ext} 类型的文件")
+            except Exception as e:
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.critical(self, "打开文件失败", f"无法打开文件: {str(e)}")
+    
+    def cloneRepository(self):
+        """克隆远程仓库"""
+        from PyQt5.QtWidgets import QInputDialog, QLineEdit, QFileDialog
+        
+        # 获取远程仓库URL
+        url, ok = QInputDialog.getText(
+            self, "克隆仓库", "请输入远程仓库URL:",
+            QLineEdit.Normal, "")
+        
+        if ok and url:
+            # 选择克隆目标目录
+            target_dir = QFileDialog.getExistingDirectory(self, "选择克隆目标目录")
+            
+            if target_dir:
+                try:
+                    # 使用GitPanel的克隆功能
+                    self.gitPanel.cloneRepository(url, target_dir)
+                except Exception as e:
+                    from PyQt5.QtWidgets import QMessageBox
+                    QMessageBox.critical(self, "克隆失败", f"无法克隆仓库: {str(e)}")
+    
+    def updateDocumentNavigation(self, document_text):
+        """ 更新文档导航 """
+        self.documentNavigator.parseDocument(document_text)
+        
+    def onCursorPositionChanged(self, line_number):
+        """ 处理光标位置变化 """
+        # 在这里可以更新状态栏显示当前行列信息
+        pass 
+>>>>>>> Stashed changes
