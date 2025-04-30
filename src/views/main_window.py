@@ -4,7 +4,7 @@
 import os
 import sys
 from PyQt5.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QSplitter, QMessageBox, 
-                           QStackedWidget, QFileDialog, QMenuBar, QMenu, QAction)
+                           QStackedWidget, QFileDialog, QMenuBar, QMenu, QAction, QApplication)
 from PyQt5.QtCore import Qt, QSize, pyqtSignal, QTimer
 from PyQt5.QtGui import QIcon, QFont, QKeySequence, QColor, QTextCharFormat, QTextCursor
 
@@ -23,6 +23,10 @@ from src.utils.config_manager import ConfigManager
 from src.components.log_dialog import LogDialog
 from src.utils.logger import info, warning, error, critical, show_error_message
 
+# 导入插件管理器
+from src.utils.plugin_manager import init_plugin_manager, get_plugin_manager
+from src.components.plugin_settings import PluginManager as PluginManagerWidget
+
 class MainWindow(QMainWindow):
     """ 主窗口类 """
     
@@ -33,6 +37,9 @@ class MainWindow(QMainWindow):
         
         # 初始化配置管理器
         self.configManager = ConfigManager()
+        
+        # 初始化插件管理器
+        self.pluginManager = init_plugin_manager(self)
         
         # 初始化Git管理器为None
         self.gitManager = None
@@ -65,20 +72,33 @@ class MainWindow(QMainWindow):
         # 连接信号与槽
         self.connectSignals()
         
-        # 设置主题
-        theme = self.configManager.get_theme()
-        if theme == 'light':
-            setTheme(Theme.LIGHT)
-        elif theme == 'dark':
-            setTheme(Theme.DARK)
-        else:
-            setTheme(Theme.AUTO)
+        # 设置默认主题
+        setTheme(Theme.LIGHT)
         
         # 添加快捷键
         self.setupShortcuts()
         
         # 检查自动保存恢复
         QTimer.singleShot(500, self.checkAutoSaveRecovery)
+        
+        # 加载插件
+        self._loadPlugins()
+        
+    def _loadPlugins(self):
+        """加载插件系统"""
+        info("开始加载插件系统...")
+        try:
+            # 加载所有插件
+            self.pluginManager.load_all_plugins()
+            
+            # 触发应用初始化事件，通知插件
+            self.pluginManager.trigger_event('app_initialized', self)
+            
+            info("插件系统加载完成")
+        except Exception as e:
+            error(f"加载插件系统时出错: {str(e)}")
+            import traceback
+            error(traceback.format_exc())
         
     def initUI(self):
         """ 初始化用户界面 """
@@ -143,7 +163,6 @@ class MainWindow(QMainWindow):
     
     def createMenus(self):
         """ 创建菜单栏 """
-        # 创建菜单栏
         menuBar = self.menuBar()
         
         # 文件菜单
@@ -151,148 +170,413 @@ class MainWindow(QMainWindow):
         
         # 新建文件动作
         newFileAction = QAction("新建文件", self)
-        newFileAction.setShortcut("Ctrl+N")
+        newFileAction.setIcon(FluentIcon.ADD.icon())
+        newFileAction.setShortcut(QKeySequence.New)
         newFileAction.triggered.connect(self.createNewFile)
         fileMenu.addAction(newFileAction)
         
         # 打开文件动作
         openFileAction = QAction("打开文件", self)
-        openFileAction.setShortcut("Ctrl+O")
+        openFileAction.setIcon(FluentIcon.FOLDER.icon())
+        openFileAction.setShortcut(QKeySequence.Open)
         openFileAction.triggered.connect(self.openFile)
         fileMenu.addAction(openFileAction)
         
         # 保存文件动作
         saveFileAction = QAction("保存文件", self)
-        saveFileAction.setShortcut("Ctrl+S")
+        saveFileAction.setIcon(FluentIcon.SAVE.icon())
+        saveFileAction.setShortcut(QKeySequence.Save)
         saveFileAction.triggered.connect(self.saveFile)
         fileMenu.addAction(saveFileAction)
         
-        # 另存为文件动作
-        saveAsFileAction = QAction("另存为", self)
-        saveAsFileAction.setShortcut("Ctrl+Shift+S")
-        saveAsFileAction.triggered.connect(self.saveFileAs)
-        fileMenu.addAction(saveAsFileAction)
+        # 另存为动作
+        saveAsAction = QAction("另存为", self)
+        saveAsAction.setIcon(FluentIcon.SAVE_AS.icon())
+        saveAsAction.setShortcut(QKeySequence.SaveAs)
+        saveAsAction.triggered.connect(self.saveFileAs)
+        fileMenu.addAction(saveAsAction)
         
-        # 文件历史记录操作子菜单
-        fileHistoryMenu = QMenu("文件版本", self)
+        fileMenu.addSeparator()
         
-        # 比较文件与已保存版本
-        compareWithSavedAction = QAction("比较未保存与已保存版本", self)
-        compareWithSavedAction.setShortcut("Ctrl+K D")
-        compareWithSavedAction.triggered.connect(self.compareWithSaved)
-        fileHistoryMenu.addAction(compareWithSavedAction)
+        # 打开仓库动作
+        openRepoAction = QAction("打开仓库", self)
+        openRepoAction.setIcon(FluentIcon.GITHUB.icon())
+        openRepoAction.triggered.connect(self.openRepository)
+        fileMenu.addAction(openRepoAction)
         
-        # 回退到已保存版本
-        revertToSavedAction = QAction("回退到已保存版本", self)
-        revertToSavedAction.triggered.connect(self.revertToSaved)
-        fileHistoryMenu.addAction(revertToSavedAction)
+        # 克隆仓库动作
+        cloneRepoAction = QAction("克隆仓库", self)
+        cloneRepoAction.setIcon(FluentIcon.DOWNLOAD.icon())
+        cloneRepoAction.triggered.connect(self.cloneRepository)
+        fileMenu.addAction(cloneRepoAction)
         
-        # 比较文件与Git中的版本
-        compareWithGitAction = QAction("比较与Git版本", self)
-        compareWithGitAction.triggered.connect(self.compareWithGitVersion)
-        fileHistoryMenu.addAction(compareWithGitAction)
+        # 最近打开的仓库子菜单
+        self.recentReposMenu = QMenu("最近的仓库", self)
+        self.recentReposMenu.setIcon(FluentIcon.HISTORY.icon())
+        fileMenu.addMenu(self.recentReposMenu)
         
-        # 回退到Git版本
-        revertToGitAction = QAction("回退到Git版本", self)
-        revertToGitAction.triggered.connect(self.revertToGitVersion)
-        fileHistoryMenu.addAction(revertToGitAction)
+        # 清空最近仓库历史
+        clearRecentAction = QAction("清空历史记录", self)
+        clearRecentAction.setIcon(FluentIcon.DELETE.icon())
+        clearRecentAction.triggered.connect(self.clearRecentRepositories)
+        self.recentReposMenu.addAction(clearRecentAction)
         
-        fileMenu.addMenu(fileHistoryMenu)
+        # 更新最近仓库菜单
+        self.updateRecentRepositoriesMenu()
         
         fileMenu.addSeparator()
         
         # 退出动作
         exitAction = QAction("退出", self)
-        exitAction.setShortcut("Ctrl+Q")
+        exitAction.setIcon(FluentIcon.CLOSE.icon())
+        exitAction.setShortcut(QKeySequence.Quit)
         exitAction.triggered.connect(self.close)
         fileMenu.addAction(exitAction)
+        
+        # 编辑菜单
+        editMenu = menuBar.addMenu("编辑")
+        
+        # 撤销动作
+        undoAction = QAction("撤销", self)
+        undoAction.setIcon(FluentIcon.RETURN.icon())
+        undoAction.setShortcut(QKeySequence.Undo)
+        undoAction.triggered.connect(self.undoEdit)
+        editMenu.addAction(undoAction)
+        
+        # 重做动作
+        redoAction = QAction("重做", self)
+        redoAction.setIcon(FluentIcon.RETURN.icon())
+        redoAction.setShortcut(QKeySequence.Redo)
+        redoAction.triggered.connect(self.redoEdit)
+        editMenu.addAction(redoAction)
+        
+        editMenu.addSeparator()
+        
+        # 剪切动作
+        cutAction = QAction("剪切", self)
+        cutAction.setIcon(FluentIcon.CUT.icon())
+        cutAction.setShortcut(QKeySequence.Cut)
+        cutAction.triggered.connect(lambda: self.editor.editor.cut() if hasattr(self, 'editor') else None)
+        editMenu.addAction(cutAction)
+        
+        # 复制动作
+        copyAction = QAction("复制", self)
+        copyAction.setIcon(FluentIcon.COPY.icon())
+        copyAction.setShortcut(QKeySequence.Copy)
+        copyAction.triggered.connect(lambda: self.editor.editor.copy() if hasattr(self, 'editor') else None)
+        editMenu.addAction(copyAction)
+        
+        # 粘贴动作
+        pasteAction = QAction("粘贴", self)
+        pasteAction.setIcon(FluentIcon.PASTE.icon())
+        pasteAction.setShortcut(QKeySequence.Paste)
+        pasteAction.triggered.connect(lambda: self.editor.editor.paste() if hasattr(self, 'editor') else None)
+        editMenu.addAction(pasteAction)
+        
+        editMenu.addSeparator()
+        
+        # 查找动作
+        findAction = QAction("查找", self)
+        findAction.setIcon(FluentIcon.SEARCH.icon())
+        findAction.setShortcut(QKeySequence.Find)
+        findAction.triggered.connect(self.showFindDialog)
+        editMenu.addAction(findAction)
+        
+        # 替换动作
+        replaceAction = QAction("替换", self)
+        replaceAction.setIcon(FluentIcon.EDIT.icon())
+        replaceAction.setShortcut(QKeySequence.Replace)
+        replaceAction.triggered.connect(self.showReplaceDialog)
+        editMenu.addAction(replaceAction)
+        
+        # 视图菜单
+        viewMenu = menuBar.addMenu("视图")
+        
+        # 显示/隐藏文件资源管理器
+        self.toggleExplorerAction = QAction("文件资源管理器", self)
+        self.toggleExplorerAction.setCheckable(True)
+        self.toggleExplorerAction.setChecked(True)
+        self.toggleExplorerAction.triggered.connect(self.toggleExplorer)
+        viewMenu.addAction(self.toggleExplorerAction)
+        
+        # 显示/隐藏预览
+        self.togglePreviewAction = QAction("Markdown预览", self)
+        self.togglePreviewAction.setCheckable(True)
+        self.togglePreviewAction.setChecked(True)
+        self.togglePreviewAction.triggered.connect(self.togglePreview)
+        viewMenu.addAction(self.togglePreviewAction)
+        
+        # 显示/隐藏Git面板
+        self.toggleGitPanelAction = QAction("Git面板", self)
+        self.toggleGitPanelAction.setCheckable(True)
+        self.toggleGitPanelAction.setChecked(True)
+        self.toggleGitPanelAction.triggered.connect(self.toggleGitPanel)
+        viewMenu.addAction(self.toggleGitPanelAction)
+        
+        viewMenu.addSeparator()
+        
+        # 显示日志对话框
+        showLogDialogAction = QAction("查看日志", self)
+        showLogDialogAction.setIcon(FluentIcon.DOCUMENT.icon())
+        showLogDialogAction.triggered.connect(self.showLogDialog)
+        viewMenu.addAction(showLogDialogAction)
         
         # Git菜单
         gitMenu = menuBar.addMenu("Git")
         
-        # 打开仓库动作
-        openRepoAction = QAction("打开仓库", self)
-        openRepoAction.setIcon(FluentIcon.FOLDER.icon())
-        openRepoAction.triggered.connect(self.openRepo)
-        gitMenu.addAction(openRepoAction)
+        # 提交更改
+        commitAction = QAction("提交更改", self)
+        commitAction.setIcon(FluentIcon.ACCEPT.icon())
+        commitAction.triggered.connect(self.commitChanges)
+        gitMenu.addAction(commitAction)
         
-        # 创建仓库动作
-        createRepoAction = QAction("创建仓库", self)
-        createRepoAction.setIcon(FluentIcon.ADD.icon())
-        createRepoAction.triggered.connect(self.createNewRepository)
-        gitMenu.addAction(createRepoAction)
+        # 推送更改
+        pushAction = QAction("推送更改", self)
+        pushAction.setIcon(FluentIcon.UP.icon())
+        pushAction.triggered.connect(self.pushChanges)
+        gitMenu.addAction(pushAction)
+        
+        # 拉取更改
+        pullAction = QAction("拉取更改", self)
+        pullAction.setIcon(FluentIcon.DOWN.icon())
+        pullAction.triggered.connect(self.pullChanges)
+        gitMenu.addAction(pullAction)
         
         gitMenu.addSeparator()
         
-        # 最近仓库子菜单
-        self.recentReposMenu = QMenu("最近仓库", self)
-        self.recentReposMenu.setIcon(FluentIcon.HISTORY.icon())
-        gitMenu.addMenu(self.recentReposMenu)
+        # 管理分支
+        branchesAction = QAction("管理分支", self)
+        branchesAction.setIcon(FluentIcon.FOLDER.icon())
+        branchesAction.triggered.connect(self.manageBranches)
+        gitMenu.addAction(branchesAction)
         
-        # 添加清空历史记录动作
-        self.recentReposMenu.addSeparator()
-        clearRecentAction = QAction("清空历史记录", self)
-        clearRecentAction.triggered.connect(self.clearRecentRepositories)
-        self.recentReposMenu.addAction(clearRecentAction)
+        # 查看历史
+        historyAction = QAction("查看历史", self)
+        historyAction.setIcon(FluentIcon.HISTORY.icon())
+        historyAction.triggered.connect(self.viewHistory)
+        gitMenu.addAction(historyAction)
         
-        # 更新最近仓库列表
-        self.updateRecentRepositoriesMenu()
+        # 插件菜单
+        pluginsMenu = menuBar.addMenu("插件")
+        
+        # 插件管理器
+        managePluginsAction = QAction("插件管理器", self)
+        managePluginsAction.setIcon(FluentIcon.SETTING.icon())
+        managePluginsAction.triggered.connect(self.showPluginManager)
+        pluginsMenu.addAction(managePluginsAction)
+        
+        # 刷新插件动作
+        refreshPluginsAction = QAction("刷新插件", self)
+        refreshPluginsAction.setIcon(FluentIcon.SYNC.icon())
+        refreshPluginsAction.triggered.connect(self.refreshPlugins)
+        pluginsMenu.addAction(refreshPluginsAction)
+        
+        pluginsMenu.addSeparator()
+        
+        # 插件子菜单 - 将在插件加载后更新
+        self.pluginsSubMenu = QMenu("已安装插件", self)
+        self.pluginsSubMenu.setIcon(FluentIcon.LIBRARY.icon())
+        pluginsMenu.addMenu(self.pluginsSubMenu)
+        
+        # 在插件加载后更新插件菜单
+        QTimer.singleShot(1000, self.updatePluginsMenu)
         
         # 设置菜单
         settingsMenu = menuBar.addMenu("设置")
         
-        # 主题设置子菜单
-        themeMenu = QMenu("主题", self)
-        
-        # 添加三种主题选项
-        lightThemeAction = QAction("浅色", self)
-        lightThemeAction.triggered.connect(lambda: self.setTheme('light'))
-        themeMenu.addAction(lightThemeAction)
-        
-        darkThemeAction = QAction("深色", self)
-        darkThemeAction.triggered.connect(lambda: self.setTheme('dark'))
-        themeMenu.addAction(darkThemeAction)
-        
-        autoThemeAction = QAction("自动", self)
-        autoThemeAction.triggered.connect(lambda: self.setTheme('auto'))
-        themeMenu.addAction(autoThemeAction)
-        
-        # 将主题子菜单添加到设置菜单
-        settingsMenu.addMenu(themeMenu)
-        
-        # 添加自动保存设置子菜单
+        # 自动保存设置
         autoSaveMenu = QMenu("自动保存", self)
         
-        # 失去焦点时自动保存选项
+        # 焦点变化时自动保存
         self.autoSaveOnFocusAction = QAction("失去焦点时自动保存", self)
         self.autoSaveOnFocusAction.setCheckable(True)
         self.autoSaveOnFocusAction.setChecked(self.configManager.get_auto_save_on_focus_change())
-        self.autoSaveOnFocusAction.triggered.connect(self.toggleAutoSaveOnFocus)
+        self.autoSaveOnFocusAction.triggered.connect(
+            lambda checked: self.configManager.set_auto_save_on_focus_change(checked)
+        )
         autoSaveMenu.addAction(self.autoSaveOnFocusAction)
         
-        # 自动保存间隔选项
+        # 自动保存间隔选择
         autoSaveIntervalMenu = QMenu("自动保存间隔", self)
         
-        # 添加不同的时间间隔选项
-        for seconds in [5, 10, 30, 60, 120, 300]:
-            intervalAction = QAction(f"{seconds}秒", self)
-            intervalAction.triggered.connect(lambda checked, s=seconds: self.setAutoSaveInterval(s))
+        # 添加不同的自动保存间隔选项
+        for seconds in [30, 60, 120, 300, 600]:
+            intervalAction = QAction(f"{seconds//60}分钟" if seconds >= 60 else f"{seconds}秒", self)
+            intervalAction.setCheckable(True)
+            intervalAction.setChecked(self.configManager.get_auto_save_interval() == seconds)
+            intervalAction.triggered.connect(
+                lambda checked, s=seconds: self.configManager.set_auto_save_interval(s)
+            )
             autoSaveIntervalMenu.addAction(intervalAction)
             
         autoSaveMenu.addMenu(autoSaveIntervalMenu)
         
-        # 将自动保存子菜单添加到设置菜单
         settingsMenu.addMenu(autoSaveMenu)
         
-        # 工具菜单
-        toolsMenu = menuBar.addMenu("工具")
+        # 帮助菜单
+        helpMenu = menuBar.addMenu("帮助")
         
-        # 日志管理
-        logManagerAction = QAction("日志管理", self)
-        logManagerAction.setIcon(FluentIcon.DOCUMENT.icon())
-        logManagerAction.triggered.connect(self.showLogManager)
-        toolsMenu.addAction(logManagerAction)
+        # 关于
+        aboutAction = QAction("关于", self)
+        aboutAction.setIcon(FluentIcon.INFO.icon())
+        aboutAction.triggered.connect(self.showAboutDialog)
+        helpMenu.addAction(aboutAction)
         
+        # 检查更新
+        checkUpdateAction = QAction("检查更新", self)
+        checkUpdateAction.setIcon(FluentIcon.UPDATE.icon())
+        checkUpdateAction.triggered.connect(self.checkForUpdates)
+        helpMenu.addAction(checkUpdateAction)
+        
+        helpMenu.addSeparator()
+        
+        # 开发者工具
+        devToolsAction = QAction("开发者工具", self)
+        devToolsAction.setIcon(FluentIcon.CODE.icon())
+        devToolsAction.triggered.connect(self.openDevTools)
+        helpMenu.addAction(devToolsAction)
+    
+    def _setupPluginMenus(self, menuBar):
+        """设置插件菜单项
+        
+        Args:
+            menuBar: 菜单栏
+        """
+        # 此方法将在插件加载后被调用，以允许插件添加自己的菜单项
+        pass
+    
+    def updatePluginsMenu(self):
+        """更新插件菜单"""
+        # 清空现有菜单项
+        self.pluginsSubMenu.clear()
+        
+        # 获取所有可用插件
+        plugins_info = self.pluginManager.plugin_info
+        
+        # 按类型组织
+        plugins_by_type = {}
+        for plugin_name, plugin_info in plugins_info.items():
+            plugin_type = plugin_info.get('plugin_type', '通用')
+            if plugin_type not in plugins_by_type:
+                plugins_by_type[plugin_type] = []
+            plugins_by_type[plugin_type].append((plugin_name, plugin_info))
+        
+        # 为每种类型创建子菜单
+        for plugin_type, plugins in plugins_by_type.items():
+            type_menu = QMenu(plugin_type, self)
+            
+            for plugin_name, plugin_info in plugins:
+                # 创建插件动作
+                plugin_action = QAction(plugin_info['name'], self)
+                enabled = self.configManager.is_plugin_enabled(plugin_name)
+                plugin_action.setCheckable(True)
+                plugin_action.setChecked(enabled)
+                
+                # 连接到启用/禁用函数
+                plugin_action.triggered.connect(
+                    lambda checked, name=plugin_name: self.togglePlugin(name, checked)
+                )
+                
+                type_menu.addAction(plugin_action)
+            
+            self.pluginsSubMenu.addMenu(type_menu)
+        
+        # 如果没有插件，添加一个禁用的项目
+        if not plugins_info:
+            no_plugins_action = QAction("未安装插件", self)
+            no_plugins_action.setEnabled(False)
+            self.pluginsSubMenu.addAction(no_plugins_action)
+        
+    def togglePlugin(self, plugin_name, enabled):
+        """切换插件启用状态
+        
+        Args:
+            plugin_name: 插件名称
+            enabled: 是否启用
+        """
+        try:
+            # 更新配置
+            self.configManager.set_plugin_enabled(plugin_name, enabled)
+            
+            # 获取插件实例
+            plugin = self.pluginManager.get_plugin(plugin_name)
+            if plugin:
+                # 调用插件的启用/禁用方法
+                if enabled:
+                    plugin.enable()
+                else:
+                    plugin.disable()
+                
+                # 提示成功
+                action_text = "启用" if enabled else "禁用"
+                InfoBar.success(
+                    title=f"插件已{action_text}",
+                    content=f"插件 '{plugin_name}' 已成功{action_text}",
+                    orient=Qt.Horizontal,
+                    position=InfoBarPosition.TOP,
+                    duration=2000,
+                    parent=self
+                )
+        except Exception as e:
+            error(f"切换插件 '{plugin_name}' 状态失败: {str(e)}")
+    
+    def showPluginManager(self):
+        """显示插件管理界面"""
+        # 创建插件管理对话框
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QDialogButtonBox
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("插件管理")
+        dialog.setMinimumSize(800, 600)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 创建插件管理器界面
+        plugin_manager_widget = PluginManagerWidget(dialog)
+        layout.addWidget(plugin_manager_widget)
+        
+        # 添加关闭按钮
+        button_box = QDialogButtonBox(QDialogButtonBox.Close)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        # 显示对话框
+        dialog.exec_()
+        
+        # 更新插件菜单
+        self.updatePluginsMenu()
+    
+    def refreshPlugins(self):
+        """刷新插件"""
+        try:
+            # 重新加载所有插件
+            self.pluginManager.load_all_plugins()
+            
+            # 更新插件菜单
+            self.updatePluginsMenu()
+            
+            # 提示成功
+            InfoBar.success(
+                title="插件已刷新",
+                content="已重新加载所有可用插件",
+                orient=Qt.Horizontal,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+        except Exception as e:
+            error(f"刷新插件失败: {str(e)}")
+            
+            # 提示错误
+            InfoBar.error(
+                title="刷新插件失败",
+                content=f"刷新插件时出错: {str(e)}",
+                orient=Qt.Horizontal,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            
     def updateRecentRepositoriesMenu(self):
         """ 更新最近仓库菜单 """
         # 清空除了最后一项（清空历史记录）外的所有菜单项
@@ -349,34 +633,6 @@ class MainWindow(QMainWindow):
                 duration=2000,
                 parent=self
             )
-    
-    def setTheme(self, theme):
-        """ 设置主题 """
-        self.configManager.set_theme(theme)
-        
-        if theme == 'light':
-            setTheme(Theme.LIGHT)
-            is_dark_mode = False
-        elif theme == 'dark':
-            setTheme(Theme.DARK)
-            is_dark_mode = True
-        else:
-            setTheme(Theme.AUTO)
-            # For AUTO theme, we need to determine the actual current theme
-            from qfluentwidgets import isDarkTheme
-            is_dark_mode = isDarkTheme()
-            
-        # Update components with the new theme
-        if hasattr(self, 'editor'):
-            self.editor.updateTheme(is_dark_mode)
-            
-        # Force refresh markdown preview if it exists
-        if hasattr(self, 'preview') and hasattr(self, 'editor'):
-            self.updatePreview()
-            
-        # Update status bar style if needed
-        if hasattr(self, 'statusBar'):
-            self.statusBar.updateTheme(is_dark_mode)
     
     def connectSignals(self):
         """ 连接信号与槽 """
@@ -508,120 +764,6 @@ class MainWindow(QMainWindow):
             
         return success
     
-    def openRepo(self):
-        """ 打开仓库对话框 """
-        repoPath = QFileDialog.getExistingDirectory(
-            self, "选择Git仓库", ""
-        )
-        if repoPath:
-            self.openRepository(repoPath)
-    
-    def createNewRepository(self):
-        """ 创建新的Git仓库 """
-        # 选择目录
-        repoPath = QFileDialog.getExistingDirectory(
-            self, "选择创建仓库的位置", ""
-        )
-        
-        if not repoPath:
-            return
-            
-        # 确保路径是绝对路径
-        repoPath = os.path.abspath(repoPath)
-        info(f"选择的仓库位置: {repoPath}")
-            
-        # 输入仓库名称
-        from PyQt5.QtWidgets import QInputDialog
-        repoName, ok = QInputDialog.getText(
-            self, "创建仓库", "请输入仓库名称:"
-        )
-        
-        if not ok or not repoName:
-            return
-            
-        info(f"仓库名称: {repoName}")
-            
-        # 完整的仓库路径
-        fullRepoPath = os.path.join(repoPath, repoName)
-        fullRepoPath = os.path.abspath(fullRepoPath)
-        info(f"完整的仓库路径: {fullRepoPath}")
-        
-        # 检查路径是否已存在
-        if os.path.exists(fullRepoPath) and os.listdir(fullRepoPath):
-            reply = QMessageBox.question(
-                self, "确认覆盖", 
-                f"目录 {fullRepoPath} 已存在且不为空，是否继续？\n（不会删除现有文件，但会将此目录初始化为Git仓库）",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            
-            if reply == QMessageBox.No:
-                return
-        
-        try:
-            info(f"开始初始化仓库: {fullRepoPath}")
-            # 初始化仓库
-            GitManager.initRepository(fullRepoPath)
-            
-            # 打开新创建的仓库
-            success = self.openRepository(fullRepoPath)
-            
-            if success:
-                info(f"成功创建并打开仓库: {fullRepoPath}")
-                InfoBar.success(
-                    title="创建成功",
-                    content=f"已成功创建并初始化Git仓库: {repoName}",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=3000,
-                    parent=self
-                )
-            else:
-                warning(f"仓库创建成功，但打开失败: {fullRepoPath}")
-                InfoBar.warning(
-                    title="部分成功",
-                    content=f"已创建仓库，但打开失败: {repoName}",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=3000,
-                    parent=self
-                )
-        except Exception as e:
-            error(f"创建仓库失败: {str(e)}, 路径: {fullRepoPath}")
-            QMessageBox.critical(self, "错误", f"创建仓库失败: {str(e)}")
-        
-    def loadFile(self, filePath):
-        """ 加载文件到编辑器 """
-        if not filePath or not os.path.exists(filePath):
-            return
-            
-        if not filePath.lower().endswith(('.md', '.markdown')):
-            InfoBar.warning(
-                title="不支持的文件类型",
-                content="MGit只支持Markdown文件",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
-            return
-            
-        try:
-            with open(filePath, 'r', encoding='utf-8') as f:
-                content = f.read()
-                self.editor.setPlainText(content)
-                # 同时更新状态栏和编辑器组件的文件路径
-                self.statusBar.setCurrentFile(filePath)
-                self.editor.currentFilePath = filePath
-                print(f"File loaded, path set to: {filePath}")
-                # 重置修改标记
-                self.editor.editor.document().setModified(False)
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"无法打开文件: {str(e)}")
-            
     def openRepository(self, path):
         """ 打开Git仓库 """
         # 检查是否为有效的Git仓库
@@ -688,517 +830,6 @@ class MainWindow(QMainWindow):
         # 在这里可以更新状态栏显示当前行列信息
         pass 
 
-    def compareWithSaved(self):
-        """ 比较当前未保存的内容与已保存的文件版本 """
-        currentFile = self.statusBar.getCurrentFile()
-        if not currentFile or not os.path.exists(currentFile):
-            InfoBar.warning(
-                title="无法比较",
-                content="没有已保存的文件可以比较",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
-            return
-            
-        try:
-            # 获取当前编辑器内容
-            current_content = self.editor.toPlainText()
-            
-            # 获取已保存的文件内容
-            with open(currentFile, 'r', encoding='utf-8') as f:
-                saved_content = f.read()
-                
-            # 如果内容相同，无需比较
-            if current_content == saved_content:
-                InfoBar.info(
-                    title="内容相同",
-                    content="当前内容与已保存文件相同",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=2000,
-                    parent=self
-                )
-                return
-                
-            # 创建临时文件保存当前内容
-            import tempfile
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".md")
-            try:
-                temp_path = temp_file.name
-                temp_file.close()
-                
-                with open(temp_path, 'w', encoding='utf-8') as f:
-                    f.write(current_content)
-                
-                # 调用外部diff工具或内部比较
-                self.showDiffWindow(temp_path, currentFile, "当前未保存版本", "已保存版本")
-            finally:
-                # 确保删除临时文件
-                try:
-                    os.unlink(temp_path)
-                except:
-                    pass
-        except Exception as e:
-            QMessageBox.critical(self, "比较失败", f"比较文件失败: {str(e)}")
-            
-    def revertToSaved(self):
-        """ 放弃更改，回退到已保存的版本 """
-        currentFile = self.statusBar.getCurrentFile()
-        if not currentFile or not os.path.exists(currentFile):
-            InfoBar.warning(
-                title="无法回退",
-                content="没有已保存的文件可以回退",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
-            return
-            
-        try:
-            # 重新加载文件
-            with open(currentFile, 'r', encoding='utf-8') as f:
-                content = f.read()
-                
-            # 检查内容是否相同
-            if content == self.editor.toPlainText():
-                InfoBar.info(
-                    title="无需回退",
-                    content="当前内容没有修改，无需回退",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=2000,
-                    parent=self
-                )
-                return
-                
-            # 确认是否回退
-            reply = QMessageBox.question(
-                self, "确认回退", 
-                "确定要放弃所有未保存的更改，回退到已保存的版本吗？此操作不可撤销。",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            
-            if reply == QMessageBox.No:
-                return
-                
-            # 设置编辑器内容
-            self.editor.setPlainText(content)
-            
-            # 设置当前文件路径并标记为未修改
-            self.editor.currentFilePath = currentFile
-            self.editor.editor.document().setModified(False)
-            
-            InfoBar.success(
-                title="回退成功",
-                content="已成功回退到已保存版本",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "回退失败", f"回退到已保存版本失败: {str(e)}")
-            
-    def compareWithGitVersion(self):
-        """ 比较当前文件与Git版本 """
-        currentFile = self.statusBar.getCurrentFile()
-        if not currentFile or not os.path.exists(currentFile):
-            InfoBar.warning(
-                title="无法比较",
-                content="没有可比较的文件",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
-            return
-            
-        try:
-            # 检查是否在Git仓库中
-            repo_path = self.statusBar.getCurrentRepository()
-            if not repo_path:
-                InfoBar.warning(
-                    title="未关联Git仓库",
-                    content="当前文件不在Git仓库中，无法与Git版本比较",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=2000,
-                    parent=self
-                )
-                return
-                
-            # 创建临时Git管理器
-            gitManager = GitManager(repo_path)
-            
-            # 检查文件是否在Git跟踪中
-            relative_path = os.path.relpath(currentFile, repo_path)
-            if not gitManager.isFileTracked(relative_path):
-                InfoBar.warning(
-                    title="文件未跟踪",
-                    content="当前文件未被Git跟踪，无法与Git版本比较",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=2000,
-                    parent=self
-                )
-                return
-                
-            # 获取不同版本选择
-            versions = gitManager.getFileCommitHistory(relative_path, max_count=10)
-            if not versions:
-                InfoBar.warning(
-                    title="无历史版本",
-                    content="找不到文件的历史版本",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=2000,
-                    parent=self
-                )
-                return
-                
-            # 创建版本选择对话框
-            from PyQt5.QtWidgets import QDialog, QVBoxLayout, QListWidget, QDialogButtonBox, QListWidgetItem
-            
-            dialog = QDialog(self)
-            dialog.setWindowTitle("选择Git版本进行比较")
-            layout = QVBoxLayout(dialog)
-            
-            # 列表显示可用版本
-            versionList = QListWidget()
-            for commit in versions:
-                item = QListWidgetItem(f"{commit['hash'][:7]} - {commit['date']} - {commit['message']}")
-                item.setData(Qt.UserRole, commit)
-                versionList.addItem(item)
-                
-            layout.addWidget(versionList)
-            
-            # 添加确定和取消按钮
-            buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-            buttonBox.accepted.connect(dialog.accept)
-            buttonBox.rejected.connect(dialog.reject)
-            layout.addWidget(buttonBox)
-            
-            # 显示对话框
-            if dialog.exec_() == QDialog.Accepted and versionList.currentItem():
-                selected_commit = versionList.currentItem().data(Qt.UserRole)
-                
-                # 获取选中版本的文件内容
-                git_content = gitManager.getFileContentAtCommit(relative_path, selected_commit['hash'])
-                
-                # 创建临时文件保存Git版本内容
-                import tempfile
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".md")
-                
-                try:
-                    temp_path = temp_file.name
-                    temp_file.close()
-                    
-                    with open(temp_path, 'w', encoding='utf-8') as f:
-                        f.write(git_content)
-                    
-                    # 调用diff工具比较
-                    self.showDiffWindow(
-                        currentFile, temp_path, 
-                        "当前版本", 
-                        f"Git版本 ({selected_commit['hash'][:7]} - {selected_commit['date']})"
-                    )
-                finally:
-                    # 确保删除临时文件
-                    try:
-                        os.unlink(temp_path)
-                    except:
-                        pass
-                        
-        except Exception as e:
-            QMessageBox.critical(self, "比较失败", f"比较文件失败: {str(e)}")
-            
-    def showDiffWindow(self, file1, file2, label1="文件1", label2="文件2"):
-        """ 显示文件差异窗口 """
-        try:
-            # 导入所需模块
-            from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QSplitter, QLabel
-            from PyQt5.QtGui import QColor, QTextCharFormat, QTextCursor
-            
-            # 创建对话框
-            dialog = QDialog(self)
-            dialog.setWindowTitle("文件比较")
-            dialog.resize(900, 600)
-            layout = QVBoxLayout(dialog)
-            
-            # 创建分割器
-            splitter = QSplitter(Qt.Horizontal)
-            
-            # 左侧文件
-            leftWidget = QWidget()
-            leftLayout = QVBoxLayout(leftWidget)
-            leftLayout.setContentsMargins(0, 0, 0, 0)
-            
-            leftLabel = QLabel(label1)
-            leftLabel.setAlignment(Qt.AlignCenter)
-            leftLayout.addWidget(leftLabel)
-            
-            leftText = QTextEdit()
-            leftText.setReadOnly(True)
-            with open(file1, 'r', encoding='utf-8') as f:
-                leftText.setPlainText(f.read())
-            leftLayout.addWidget(leftText)
-            
-            # 右侧文件
-            rightWidget = QWidget()
-            rightLayout = QVBoxLayout(rightWidget)
-            rightLayout.setContentsMargins(0, 0, 0, 0)
-            
-            rightLabel = QLabel(label2)
-            rightLabel.setAlignment(Qt.AlignCenter)
-            rightLayout.addWidget(rightLabel)
-            
-            rightText = QTextEdit()
-            rightText.setReadOnly(True)
-            with open(file2, 'r', encoding='utf-8') as f:
-                rightText.setPlainText(f.read())
-            rightLayout.addWidget(rightText)
-            
-            # 添加到分割器
-            splitter.addWidget(leftWidget)
-            splitter.addWidget(rightWidget)
-            
-            # 高亮差异
-            self.highlightDiff(leftText, rightText)
-            
-            layout.addWidget(splitter)
-            
-            # 显示对话框
-            dialog.exec_()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "显示比较失败", f"显示文件比较失败: {str(e)}")
-            
-    def highlightDiff(self, textEdit1, textEdit2):
-        """ 高亮两个文本编辑器之间的差异 """
-        text1 = textEdit1.toPlainText().splitlines()
-        text2 = textEdit2.toPlainText().splitlines()
-        
-        # 简单差异比较，使用difflib
-        import difflib
-        matcher = difflib.SequenceMatcher(None, text1, text2)
-        
-        # 高亮格式
-        addFormat = QTextCharFormat()
-        addFormat.setBackground(QColor(200, 255, 200))  # 浅绿色，表示添加
-        
-        removeFormat = QTextCharFormat()
-        removeFormat.setBackground(QColor(255, 200, 200))  # 浅红色，表示删除
-        
-        # 应用高亮
-        cursor1 = textEdit1.textCursor()
-        cursor1.setPosition(0)
-        
-        cursor2 = textEdit2.textCursor()
-        cursor2.setPosition(0)
-        
-        # 追踪位置
-        pos1 = 0
-        pos2 = 0
-        
-        # 处理每个不同块
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            # 移动到差异位置并高亮
-            if tag == 'replace' or tag == 'delete':
-                # 高亮左侧的删除部分
-                for i in range(i1, i2):
-                    lineLen = len(text1[i]) if i < len(text1) else 0
-                    cursor1.setPosition(pos1)
-                    cursor1.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, lineLen)
-                    cursor1.mergeCharFormat(removeFormat)
-                    pos1 += lineLen + 1  # +1 for newline
-            else:
-                # 跳过相同部分或右侧插入的部分
-                for i in range(i1, i2):
-                    lineLen = len(text1[i]) if i < len(text1) else 0
-                    pos1 += lineLen + 1  # +1 for newline
-                    
-            if tag == 'replace' or tag == 'insert':
-                # 高亮右侧的添加部分
-                for j in range(j1, j2):
-                    lineLen = len(text2[j]) if j < len(text2) else 0
-                    cursor2.setPosition(pos2)
-                    cursor2.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, lineLen)
-                    cursor2.mergeCharFormat(addFormat)
-                    pos2 += lineLen + 1  # +1 for newline
-            else:
-                # 跳过相同部分或左侧删除的部分
-                for j in range(j1, j2):
-                    lineLen = len(text2[j]) if j < len(text2) else 0
-                    pos2 += lineLen + 1  # +1 for newline 
-
-    def setupShortcuts(self):
-        """ 设置全局快捷键 """
-        from PyQt5.QtWidgets import QShortcut
-        
-        # 保存快捷键
-        saveShortcut = QShortcut(QKeySequence("Ctrl+S"), self)
-        saveShortcut.activated.connect(self.saveFile)
-        
-        # 另存为快捷键
-        saveAsShortcut = QShortcut(QKeySequence("Ctrl+Shift+S"), self)
-        saveAsShortcut.activated.connect(self.saveFileAs)
-        
-        # 比较文件快捷键
-        compareShortcut = QShortcut(QKeySequence("Ctrl+K,D"), self)
-        compareShortcut.activated.connect(self.compareWithSaved)
-
-    def revertToGitVersion(self):
-        """还原到Git版本"""
-        try:
-            # 检查当前编辑器是否有打开的文件
-            if not self.editor or not self.editor.currentFilePath:
-                QMessageBox.warning(self, "还原失败", "没有打开的文件")
-                return
-            
-            file_path = self.editor.currentFilePath
-            
-            # 检查文件是否存在
-            if not os.path.exists(file_path):
-                QMessageBox.warning(self, "还原失败", f"文件不存在: {file_path}")
-                return
-            
-            # 检查是否在Git仓库中
-            repo_path = self.statusBar.getCurrentRepository()
-            if not repo_path:
-                QMessageBox.warning(self, "还原失败", "文件不在Git仓库中")
-                return
-            
-            # 初始化或获取Git管理器
-            if not self.gitManager:
-                self.gitManager = GitManager(repo_path)
-            
-            try:
-                # 检查文件是否在Git仓库中
-                relative_path = os.path.relpath(file_path, repo_path)
-                if not self.gitManager.isFileTracked(relative_path):
-                    QMessageBox.warning(self, "还原失败", "文件未被Git跟踪")
-                    return
-            except Exception as e:
-                QMessageBox.warning(self, "还原失败", f"检查Git跟踪状态时出错: {str(e)}")
-                return
-            
-            # 检查是否有未保存的修改
-            if self.editor.editor.document().isModified():
-                reply = QMessageBox.question(
-                    self, 
-                    "未保存的修改", 
-                    "文件有未保存的修改。继续操作将丢失这些修改。\n是否先保存文件？",
-                    QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel
-                )
-                
-                if reply == QMessageBox.Save:
-                    self.saveFile()
-                elif reply == QMessageBox.Cancel:
-                    return
-                # 如果选择Discard，继续执行
-            
-            try:
-                # 获取文件的Git历史记录
-                versions = self.gitManager.getFileCommitHistory(relative_path, max_count=10)
-                
-                if not versions:
-                    QMessageBox.warning(
-                        self, 
-                        "无法获取历史记录", 
-                        "无法获取文件的Git历史记录。文件可能是新创建的或未提交。"
-                    )
-                    return
-                    
-                # 显示版本选择对话框
-                from PyQt5.QtWidgets import QDialog, QVBoxLayout, QListWidget, QDialogButtonBox, QListWidgetItem
-                
-                dialog = QDialog(self)
-                dialog.setWindowTitle("选择Git版本进行还原")
-                layout = QVBoxLayout(dialog)
-                
-                # 列表显示可用版本
-                versionList = QListWidget()
-                for commit in versions:
-                    item = QListWidgetItem(f"{commit['hash'][:7]} - {commit['date']} - {commit['message']}")
-                    item.setData(Qt.UserRole, commit)
-                    versionList.addItem(item)
-                    
-                layout.addWidget(versionList)
-                
-                # 添加确定和取消按钮
-                buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-                buttonBox.accepted.connect(dialog.accept)
-                buttonBox.rejected.connect(dialog.reject)
-                layout.addWidget(buttonBox)
-                
-                # 显示对话框
-                if dialog.exec_() == QDialog.Accepted and versionList.currentItem():
-                    selected_commit = versionList.currentItem().data(Qt.UserRole)
-                    
-                    # 再次确认
-                    confirm = QMessageBox.question(
-                        self,
-                        "确认还原",
-                        f"确定要将文件还原到提交 {selected_commit['hash'][:8]} 的版本吗？\n\n"
-                        f"提交信息: {selected_commit['message']}\n"
-                        f"日期: {selected_commit['date']}",
-                        QMessageBox.Yes | QMessageBox.No
-                    )
-                    
-                    if confirm == QMessageBox.Yes:
-                        # 获取指定版本的文件内容
-                        file_content = self.gitManager.getFileContentAtCommit(relative_path, selected_commit['hash'])
-                        
-                        if file_content is None:
-                            QMessageBox.warning(self, "还原失败", f"无法获取提交 {selected_commit['hash'][:8]} 的文件内容")
-                            return
-                        
-                        # 确保文件内容是字符串
-                        if isinstance(file_content, bytes):
-                            try:
-                                # 尝试UTF-8解码
-                                file_content = file_content.decode('utf-8', errors='replace')
-                            except UnicodeDecodeError:
-                                # 如果失败，使用系统默认编码
-                                import locale
-                                file_content = file_content.decode(locale.getpreferredencoding(), errors='replace')
-                        
-                        # 更新编辑器内容
-                        self.editor.setPlainText(file_content)
-                        
-                        # 更新状态
-                        self.editor.editor.document().setModified(True)
-                        
-                        # 显示成功消息
-                        InfoBar.success(
-                            title="还原成功",
-                            content=f"文件已还原到提交 {selected_commit['hash'][:8]} 的版本。",
-                            orient=Qt.Horizontal,
-                            isClosable=True,
-                            position=InfoBarPosition.TOP,
-                            duration=3000,
-                            parent=self
-                        )
-            except Exception as e:
-                error(f"还原到Git版本时出错: {str(e)}")
-                QMessageBox.warning(self, "还原失败", f"操作过程中出错: {str(e)}")
-        except Exception as e:
-            error(f"执行Git还原操作时发生未处理异常: {str(e)}")
-            QMessageBox.critical(self, "系统错误", f"执行操作时发生未预期错误: {str(e)}")
-
     def checkAutoSaveRecovery(self):
         """ 检查是否有自动保存文件需要恢复 """
         if hasattr(self, 'editor') and hasattr(self.editor, 'recoverFromAutoSave'):
@@ -1252,17 +883,22 @@ class MainWindow(QMainWindow):
         # 接受关闭事件
         event.accept() 
 
-    def showLogManager(self):
+    def showLogDialog(self):
         """ 显示日志管理对话框 """
         dialog = LogDialog(self)
         dialog.exec_() 
 
-    def toggleAutoSaveOnFocus(self):
-        """ 切换自动保存到焦点变化 """
-        self.configManager.set_auto_save_on_focus_change(self.autoSaveOnFocusAction.isChecked())
-    def setAutoSaveInterval(self, seconds):
-        """ 设置自动保存间隔 """
-        self.configManager.set_auto_save_interval(seconds) 
+    def setupShortcuts(self):
+        """ 设置全局快捷键 """
+        from PyQt5.QtWidgets import QShortcut
+        
+        # 保存快捷键
+        saveShortcut = QShortcut(QKeySequence("Ctrl+S"), self)
+        saveShortcut.activated.connect(self.saveFile)
+        
+        # 另存为快捷键
+        saveAsShortcut = QShortcut(QKeySequence("Ctrl+Shift+S"), self)
+        saveAsShortcut.activated.connect(self.saveFileAs)
 
     def showAboutDialog(self):
         """ 显示关于对话框 """
@@ -1397,21 +1033,40 @@ class MainWindow(QMainWindow):
         
     def openDevTools(self):
         """打开开发者工具"""
-        from PyQt5.QtWidgets import QMessageBox
+       # 检查开发者工具插件是否存在并启用
+        plugin_manager = get_plugin_manager()
+        dev_tools_plugin = None
         
-        # 查找开发者工具插件
-        dev_plugin = None
-        for plugin_name, plugin in self.pluginManager.plugins.items():
-            if plugin.name == "开发者工具":
-                dev_plugin = plugin
-                break
-        
-        # 检查插件是否存在并且启用
-        if dev_plugin and dev_plugin.enabled:
-            # 调用插件的open_dev_tools方法
-            dev_plugin.open_dev_tools()
-        else:
-            QMessageBox.information(self, "开发者工具未启用", '开发者工具插件未安装或未启用。\n\n请在插件管理器中启用"开发者工具"插件后再试。')
+        try:
+            # 尝试获取开发者工具插件
+            dev_tools_plugin = plugin_manager.get_plugin("developer_tools")
+            
+            # 检查插件是否启用
+            if dev_tools_plugin and self.configManager.is_plugin_enabled("developer_tools"):
+                # 调用插件的打开方法
+                dev_tools_plugin.open_dev_tools()
+            else:
+                # 如果插件未启用，显示提示
+                InfoBar.warning(
+                    title="功能未启用",
+                    content="开发者工具插件未启用，请在插件管理器中启用此插件",
+                    orient=Qt.Horizontal,
+                    position=InfoBarPosition.TOP,
+                    duration=3000,
+                    parent=self
+                )
+        except Exception as e:
+            # 如果发生错误（例如插件不存在），显示错误信息
+            warning(f"打开开发者工具时出错: {str(e)}")
+            InfoBar.error(
+                title="功能不可用",
+                content="无法找到开发者工具插件，请确保插件已正确安装",
+                orient=Qt.Horizontal,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+    
     
     def loadFile(self, file_path):
         """加载文件到编辑器
@@ -1474,4 +1129,3 @@ class MainWindow(QMainWindow):
         """ 处理光标位置变化 """
         # 在这里可以更新状态栏显示当前行列信息
         pass 
-

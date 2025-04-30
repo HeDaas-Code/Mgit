@@ -341,4 +341,19 @@ class ConfigManager(QObject):
         if settings is None:
             return default
         
-        return settings.get(key, default) 
+        return settings.get(key, default)
+    
+    def set_plugin_enabled(self, plugin_name: str, enabled: bool) -> None:
+        """设置插件的启用状态
+        
+        Args:
+            plugin_name: 插件名称
+            enabled: 是否启用
+        """
+        if enabled:
+            self.enable_plugin(plugin_name)
+        else:
+            self.disable_plugin(plugin_name)
+            
+        # 发送信号
+        self.pluginSettingsChanged.emit(plugin_name) 

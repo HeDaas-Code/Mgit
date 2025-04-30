@@ -12,7 +12,7 @@ markdown>=3.3.0
 pygments>=2.7.0
 
 # 网络和安全
-requests>=2.25.0
+requests>=2.28.0  # HTTP请求
 urllib3>=1.26.0
 pyopenssl>=23.0.0
 cryptography>=41.0.0
@@ -23,9 +23,6 @@ pillow>=9.0.0
 ntplib>=0.4.0
 
 # 辅助库
-<<<<<<< Updated upstream
-python-dateutil>=2.8.0 
-=======
 python-dateutil>=2.8.0
 loguru>=0.7.0  # 高级日志记录库
 
@@ -34,11 +31,5 @@ pluginbase>=1.0.0
 
 # 开发工具附加依赖
 setuptools>=65.5.0  # 提供pkg_resources模块
-matplotlib
+matplotlib>=3.5.0  # 绘图库，用于性能监控
 psutil>=5.9.0  # 系统监控
-<<<<<<< Updated upstream
-requests>=2.28.0  # HTTP请求
->>>>>>> Stashed changes
-=======
-requests>=2.28.0  # HTTP请求
->>>>>>> Stashed changes
