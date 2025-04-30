@@ -120,6 +120,19 @@ def main():
     translator = FluentTranslator()
     app.installTranslator(translator)
     
+    # 检查是否需要应用自定义深色主题
+    try:
+        from src.utils.config_manager import ConfigManager
+        config = ConfigManager()
+        theme = config.get_theme()
+        
+        if theme == 'dark' or (theme == 'auto' and isDarkTheme()):
+            from src.theme import apply_custom_dark_theme
+            custom_theme_qss = apply_custom_dark_theme(app)
+            info("应用了自定义深色主题")
+    except Exception as e:
+        warning(f"应用自定义深色主题失败: {str(e)}")
+    
     # 设置关闭时清理缓存
     from PyQt5.QtWebEngineWidgets import QWebEngineProfile
     profile = QWebEngineProfile.defaultProfile()

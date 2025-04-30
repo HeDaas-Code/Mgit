@@ -468,7 +468,7 @@ class LineNumberArea(QWidget):
             dark_mode = md_editor.dark_mode
         
         # 根据主题设置颜色
-        bg_color = QColor("#F0F0F0") if not dark_mode else QColor("#2D2D2D")
+        bg_color = QColor("#F0F0F0") if not dark_mode else QColor("#2c3e50")
         painter.fillRect(event.rect(), bg_color)
         
         # 获取可见区域
@@ -478,8 +478,8 @@ class LineNumberArea(QWidget):
             self.editor.contentOffset()).top()
         bottom = top + self.editor.blockBoundingRect(block).height()
         
-        # 行号颜色
-        text_color = QColor("#888888") if not dark_mode else QColor("#AAAAAA")
+        # 行号颜色 - 深色模式使用白色
+        text_color = QColor("#333333") if not dark_mode else QColor("#ffffff")
         current_line = self.editor.textCursor().blockNumber()
         
         # 设置字体
@@ -490,7 +490,7 @@ class LineNumberArea(QWidget):
             if block.isVisible() and bottom >= event.rect().top():
                 # 当前行高亮
                 if block_number == current_line:
-                    painter.setPen(QColor("#333333") if not dark_mode else QColor("#FFFFFF"))
+                    painter.setPen(QColor("#000000") if not dark_mode else QColor("#ffffff"))
                 else:
                     painter.setPen(text_color)
                     
@@ -750,12 +750,12 @@ class MarkdownEditor(QWidget):
         """ 更新主题 """
         self.dark_mode = dark_mode
         
-        # 更新编辑器样式
+        # 根据主题模式设置字体颜色
         if dark_mode:
             self.editor.setStyleSheet("""
                 EnhancedTextEdit {
-                    background-color: #2D2D2D;
-                    color: #EFEFEF;
+                    background-color: #2c3e50;
+                    color: #ffffff;
                     border: none;
                     padding: 10px;
                     font-family: "Consolas", "Courier New", monospace;
@@ -766,7 +766,7 @@ class MarkdownEditor(QWidget):
             self.editor.setStyleSheet("""
                 EnhancedTextEdit {
                     background-color: #F8F9FA;
-                    color: #333333;
+                    color: #000000;
                     border: none;
                     padding: 10px;
                     font-family: "Consolas", "Courier New", monospace;

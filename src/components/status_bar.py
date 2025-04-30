@@ -54,13 +54,13 @@ class StatusBar(QWidget):
         if is_dark_mode:
             self.setStyleSheet("""
                 QLabel {
-                    color: #BBBBBB;
+                    color: #ffffff;
                     font-size: 12px;
                 }
                 
                 StatusBar {
-                    background-color: #2D2D2D;
-                    border-top: 1px solid #3D3D3D;
+                    background-color: #3b3b3b;
+                    border-top: 1px solid #4b5b6c;
                 }
             """)
         else:

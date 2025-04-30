@@ -13,7 +13,7 @@ import os
 if True:  # 使用if块避免导入污染全局命名空间
     # 设置WebEngine相关环境变量
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --no-sandbox --disable-dev-shm-usage"
-    os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = "0"
+    os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = ""
     
     # 预先导入Qt模块并设置属性
     try:
