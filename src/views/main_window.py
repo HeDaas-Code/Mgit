@@ -1260,12 +1260,10 @@ class MainWindow(QMainWindow):
     def toggleAutoSaveOnFocus(self):
         """ 切换自动保存到焦点变化 """
         self.configManager.set_auto_save_on_focus_change(self.autoSaveOnFocusAction.isChecked())
-
-<<<<<<< Updated upstream
     def setAutoSaveInterval(self, seconds):
         """ 设置自动保存间隔 """
         self.configManager.set_auto_save_interval(seconds) 
-=======
+
     def showAboutDialog(self):
         """ 显示关于对话框 """
         from PyQt5.QtWidgets import QMessageBox
@@ -1476,4 +1474,4 @@ class MainWindow(QMainWindow):
         """ 处理光标位置变化 """
         # 在这里可以更新状态栏显示当前行列信息
         pass 
->>>>>>> Stashed changes
+
