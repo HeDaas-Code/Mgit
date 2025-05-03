@@ -94,6 +94,9 @@ class MainWindow(QMainWindow):
             # 触发应用初始化事件，通知插件
             self.pluginManager.trigger_event('app_initialized', self)
             
+            # 更新插件菜单，包括自定义菜单
+            self.updatePluginsMenu()
+            
             info("插件系统加载完成")
         except Exception as e:
             error(f"加载插件系统时出错: {str(e)}")
@@ -378,9 +381,6 @@ class MainWindow(QMainWindow):
         self.pluginsSubMenu.setIcon(FluentIcon.LIBRARY.icon())
         pluginsMenu.addMenu(self.pluginsSubMenu)
         
-        # 在插件加载后更新插件菜单
-        QTimer.singleShot(1000, self.updatePluginsMenu)
-        
         # 设置菜单
         settingsMenu = menuBar.addMenu("设置")
         
@@ -486,7 +486,95 @@ class MainWindow(QMainWindow):
             no_plugins_action = QAction("未安装插件", self)
             no_plugins_action.setEnabled(False)
             self.pluginsSubMenu.addAction(no_plugins_action)
+            
+        # 更新插件自定义菜单项
+        self.updatePluginCustomMenus()
+    
+    def updatePluginCustomMenus(self):
+        """更新插件自定义菜单项"""
+        menuBar = self.menuBar()
         
+        # 移除之前的插件自定义菜单
+        for action in self.findChildren(QAction, "plugin_menu_action"):
+            menu = action.menu()
+            if menu:
+                menu.clear()
+                menuBar.removeAction(action)
+            
+        # 遍历所有启用的插件
+        for plugin_name, plugin in self.pluginManager.plugins.items():
+            # 检查插件是否启用
+            if not self.configManager.is_plugin_enabled(plugin_name):
+                continue
+                
+            # 检查插件是否有自定义菜单
+            if hasattr(plugin, 'get_plugin_menu') and callable(plugin.get_plugin_menu):
+                try:
+                    # 获取插件自定义菜单
+                    plugin_menu_info = plugin.get_plugin_menu()
+                    
+                    if not plugin_menu_info:
+                        continue
+                        
+                    # 创建菜单
+                    menu_name = plugin_menu_info.get('name', plugin.name)
+                    plugin_menu = QMenu(menu_name, self)
+                    plugin_menu.setObjectName(f"plugin_menu_{plugin_name}")
+                    
+                    # 添加菜单项
+                    for item in plugin_menu_info.get('items', []):
+                        # 创建动作
+                        action = QAction(item.get('name', 'Unknown'), self)
+                        
+                        # 设置图标
+                        icon = item.get('icon')
+                        if icon:
+                            if isinstance(icon, str):
+                                from qfluentwidgets import FluentIcon
+                                # 替换getIconByName函数，使用自定义方法获取图标
+                                icon_map = {
+                                    'text_description': FluentIcon.DOCUMENT,
+                                    'folder_open': FluentIcon.FOLDER,
+                                    'save': FluentIcon.SAVE,
+                                    # 添加其他图标映射
+                                    'code': FluentIcon.CODE,
+                                    'settings': FluentIcon.SETTING,
+                                    'help': FluentIcon.HELP,
+                                    'search': FluentIcon.SEARCH
+                                }
+                                # 获取对应的FluentIcon或默认为DOCUMENT
+                                fluent_icon = icon_map.get(icon, FluentIcon.DOCUMENT)
+                                action.setIcon(fluent_icon.icon())
+                            else:
+                                action.setIcon(icon)
+                        
+                        # 设置快捷键
+                        shortcut = item.get('shortcut')
+                        if shortcut:
+                            action.setShortcut(shortcut)
+                        
+                        # 设置回调
+                        callback = item.get('callback')
+                        if callback and callable(callback):
+                            action.triggered.connect(callback)
+                        
+                        # 添加到菜单
+                        plugin_menu.addAction(action)
+                    
+                    # 如果没有菜单项，添加一个禁用的提示项
+                    if len(plugin_menu_info.get('items', [])) == 0:
+                        empty_action = QAction("无菜单项", self)
+                        empty_action.setEnabled(False)
+                        plugin_menu.addAction(empty_action)
+                    
+                    # 添加菜单到菜单栏
+                    menu_action = menuBar.addMenu(plugin_menu)
+                    menu_action.setObjectName(f"plugin_menu_action_{plugin_name}")
+                    
+                except Exception as e:
+                    from src.utils.logger import error
+                    error(f"加载插件 '{plugin_name}' 的自定义菜单失败: {str(e)}")
+    
     def togglePlugin(self, plugin_name, enabled):
         """切换插件启用状态
         
@@ -552,7 +640,7 @@ class MainWindow(QMainWindow):
             # 重新加载所有插件
             self.pluginManager.load_all_plugins()
             
-            # 更新插件菜单
+            # 更新插件菜单，包括自定义菜单
             self.updatePluginsMenu()
             
             # 提示成功

@@ -26,6 +26,12 @@ class PluginBase:
         # 可选: 依赖的其他插件
         requires = []
         
+        # 可选: Python包依赖
+        package_dependencies = [
+            "requests>=2.25.0",
+            "beautifulsoup4>=4.9.0"
+        ]
+        
         # 可选: 插件设置
         settings = {
             'setting1': {
@@ -73,6 +79,9 @@ class PluginBase:
     
     # 依赖的其他插件 (可选)
     requires: List[str] = []
+    
+    # Python包依赖 (可选)
+    package_dependencies: List[str] = []
     
     # 插件设置 (可选)
     settings: Dict[str, Dict[str, Any]] = {}

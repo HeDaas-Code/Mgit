@@ -516,6 +516,101 @@ def check_environment():
     info("Git环境检查完成")
     info("-" * 50)
 
+def load_plugins(self):
+    """加载插件"""
+    import importlib
+    import traceback
+    from src.utils.logger import info, error, warning
+    
+    plugins_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plugins')
+    info(f"开始加载插件, 插件目录: {plugins_dir}")
+    
+    # 确保resources目录存在
+    resources_dir = os.path.join(plugins_dir, 'resources')
+    if not os.path.exists(resources_dir):
+        os.makedirs(resources_dir, exist_ok=True)
+        info(f"创建插件资源目录: {resources_dir}")
+        
+    # 检查插件目录是否在Python路径中
+    if plugins_dir not in sys.path:
+        sys.path.append(plugins_dir)
+        info(f"添加插件目录到Python路径: {plugins_dir}")
+        
+    # 检查资源目录结构
+    markdown_analyzer_resources = os.path.join(resources_dir, 'markdown_analyzer')
+    if os.path.exists(markdown_analyzer_resources):
+        info(f"Markdown分析器资源目录存在: {markdown_analyzer_resources}")
+        # 列出资源文件
+        for root, dirs, files in os.walk(markdown_analyzer_resources):
+            rel_path = os.path.relpath(root, markdown_analyzer_resources)
+            if rel_path == '.':
+                rel_path = ''
+            info(f"资源目录: {rel_path}")
+            for d in dirs:
+                info(f"  子目录: {d}")
+            for f in files:
+                info(f"  文件: {f}")
+    else:
+        info(f"Markdown分析器资源目录不存在: {markdown_analyzer_resources}")
+    
+    # 继续原来的插件加载逻辑
+    if not os.path.exists(plugins_dir):
+        return []
+    
+    # 初始化插件列表
+    self.plugins = []
+    self.plugin_modules = {}
+    
+    # 遍历插件目录下的文件
+    for file in os.listdir(plugins_dir):
+        if file.endswith('.py'):
+            plugin_name = file[:-3]  # 移除.py扩展名
+            try:
+                # 反射加载插件模块
+                spec = importlib.util.spec_from_file_location(
+                    f"plugins.{plugin_name}", 
+                    os.path.join(plugins_dir, file)
+                )
+                
+                if spec is None:
+                    continue
+                
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                
+                if hasattr(module, 'Plugin'):
+                    # 初始化插件
+                    plugin_class = module.Plugin
+                    plugin_instance = plugin_class(self)
+                    
+                    # 添加到插件列表
+                    self.plugins.append(plugin_instance)
+                    self.plugin_modules[plugin_name] = module
+                    
+                    # 记录插件加载信息
+                    plugin_info = {
+                        'name': getattr(plugin_instance, 'name', plugin_name),
+                        'version': getattr(plugin_instance, 'version', '未知'),
+                        'author': getattr(plugin_instance, 'author', '未知'),
+                        'description': getattr(plugin_instance, 'description', '没有描述')
+                    }
+                    
+                    info(f"加载插件: {plugin_info['name']} v{plugin_info['version']} by {plugin_info['author']}")
+                    
+                    # 初始化插件
+                    if hasattr(plugin_instance, 'load'):
+                        try:
+                            plugin_instance.load()
+                        except Exception as e:
+                            warning(f"插件 '{plugin_instance.name}' 初始化时出错: {str(e)}，但仍将继续加载")
+                else:
+                    info(f"忽略文件 {file}: 没有找到Plugin类")
+            except Exception as e:
+                error(f"加载插件 {plugin_name} 失败: {str(e)}")
+                error(traceback.format_exc())
+    
+    return self.plugins
+
 if __name__ == "__main__":
     try:
         # 检查环境

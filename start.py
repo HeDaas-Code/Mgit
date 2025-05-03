@@ -295,6 +295,20 @@ def check_and_update_packages():
     else:
         python_path = os.path.join("venv-dev", "bin", "python")
         pip_path = os.path.join("venv-dev", "bin", "pip")
+    
+    # 检测是否使用国内镜像
+    use_china_mirror = is_in_china()
+    mirror_opt = ""
+    if use_china_mirror:
+        mirrors = get_pip_mirrors()
+        if mirrors:
+            mirror_url = mirrors[0]["url"]
+            mirror_host = mirror_url.split("/")[2]
+            mirror_opt = f" -i {mirror_url} --trusted-host {mirror_host}"
+            print_info(f"使用{mirrors[0]['name']}镜像源安装依赖")
+            
+    # 设置环境变量，禁用用户安装模式
+    os.environ['PIP_USER'] = '0'
         
     try:
         # 获取已安装的包
@@ -314,15 +328,42 @@ def check_and_update_packages():
             print_info(f"检测到{len(new_packages)}个新增依赖库，正在安装...")
             for package in new_packages:
                 print_info(f"正在安装: {package}")
-                cmd = f"{pip_path} install {package} {PIP_MIRROR}"
-                subprocess.run(cmd, shell=True, check=True)
+                # 使用--no-user选项避免在虚拟环境中出现用户安装问题
+                cmd = f"{pip_path} install {package} --no-user {mirror_opt}"
+                try:
+                    subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+                    print_info(f"成功安装: {package}")
+                except subprocess.CalledProcessError as e:
+                    print_error(f"安装失败: {package}")
+                    print_error(f"错误信息: {e.stderr}")
+                    
+                    # 尝试其他安装方式
+                    print_info(f"尝试使用隔离模式安装: {package}")
+                    try:
+                        cmd = f"{pip_path} install {package} --no-user --isolated {mirror_opt}"
+                        subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+                        print_info(f"成功安装: {package}")
+                    except subprocess.CalledProcessError as e2:
+                        print_error(f"隔离模式安装也失败: {package}")
+                        print_error(f"错误信息: {e2.stderr}")
                 
             print_info("新增依赖库安装完成")
         else:
             # 如果没有新增包但哈希值不同，可能是版本要求变了，重新安装所有依赖
             print_info("依赖库有更新，正在重新安装...")
-            cmd = f"{pip_path} install -r requirements.txt {PIP_MIRROR}"
-            subprocess.run(cmd, shell=True, check=True)
+            cmd = f"{pip_path} install -r requirements.txt --no-user {mirror_opt}"
+            try:
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                if result.returncode != 0:
+                    print_error(f"安装依赖失败: {result.stderr}")
+                    # 尝试使用隔离模式
+                    print_info("尝试使用隔离模式安装依赖...")
+                    cmd = f"{pip_path} install -r requirements.txt --no-user --isolated {mirror_opt}"
+                    subprocess.run(cmd, shell=True, check=True)
+            except Exception as e:
+                print_error(f"安装依赖时出错: {str(e)}")
+                return False
+                
             print_info("依赖库更新完成")
             
         # 保存新的哈希值
@@ -367,16 +408,51 @@ def create_venv():
             pip_path = os.path.join("venv-dev", "bin", "pip")
             python_path = os.path.join("venv-dev", "bin", "python")
         
+        # 设置环境变量，禁用用户安装模式
+        os.environ['PIP_USER'] = '0'
+        
+        # 检测是否使用国内镜像
+        use_china_mirror = is_in_china()
+        mirror_opt = PIP_MIRROR
+        if use_china_mirror:
+            mirrors = get_pip_mirrors()
+            if mirrors:
+                mirror_url = mirrors[0]["url"]
+                mirror_host = mirror_url.split("/")[2]
+                mirror_opt = f"-i {mirror_url} --trusted-host {mirror_host}"
+                print_info(f"使用{mirrors[0]['name']}镜像源安装依赖")
+        
         # 更新pip
         print_info("正在更新pip...")
-        subprocess.run(f"{python_path} -m pip install --upgrade pip {PIP_MIRROR}", shell=True, check=True)
+        try:
+            subprocess.run(f"{python_path} -m pip install --upgrade pip --no-user {mirror_opt}", 
+                          shell=True, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            print_warning(f"pip升级失败，但将继续安装: {e.stderr}")
         
         # 检查requirements.txt是否存在
         requirements_path = Path("requirements.txt")
         if requirements_path.exists():
             print_info("正在安装依赖包...")
-            subprocess.run(f"{pip_path} install -r requirements.txt {PIP_MIRROR}", shell=True, check=True)
-            print_info("依赖包安装完成")
+            try:
+                cmd = f"{pip_path} install -r requirements.txt --no-user {mirror_opt}"
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                
+                if result.returncode != 0:
+                    print_error(f"使用标准模式安装依赖失败: {result.stderr}")
+                    print_info("尝试使用隔离模式安装...")
+                    
+                    cmd = f"{pip_path} install -r requirements.txt --no-user --isolated {mirror_opt}"
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                    
+                    if result.returncode != 0:
+                        print_error(f"隔离模式安装也失败: {result.stderr}")
+                        print_warning("部分依赖可能未安装成功，但将继续执行")
+                
+                print_info("依赖包安装完成")
+            except Exception as e:
+                print_error(f"安装依赖时出错: {str(e)}")
+                print_warning("部分依赖可能未安装成功，但将继续执行")
             
             # 保存requirements.txt的哈希值
             current_hash = get_requirements_hash()
@@ -489,6 +565,295 @@ def create_dev_info_file():
         print_error(f"创建开发信息文件失败: {str(e)}")
         return False
 
+def add_dependencies_to_requirements(dependencies):
+    """将依赖项添加到requirements.txt文件中"""
+    try:
+        # 获取requirements.txt文件路径
+        req_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requirements.txt')
+        
+        # 读取现有的requirements文件内容
+        existing_lines = []
+        existing_deps = []
+        plugin_section_index = -1
+        
+        if os.path.exists(req_file_path):
+            with open(req_file_path, 'r', encoding='utf-8') as f:
+                existing_lines = f.readlines()
+                # 去除每行末尾的换行符
+                existing_lines = [line.rstrip() for line in existing_lines]
+                
+                # 分析已有内容
+                for i, line in enumerate(existing_lines):
+                    if line.strip() and not line.strip().startswith('#'):
+                        existing_deps.append(line.strip())
+                    if line.strip() == "# 插件依赖":
+                        plugin_section_index = i
+        
+        # 准备新的依赖列表
+        new_deps = []
+        for dep in dependencies:
+            # 检查依赖是否已存在
+            dep_name = dep.split('>')[0].split('=')[0].split('<')[0].strip()
+            if not any(d.startswith(dep_name) for d in existing_deps):
+                new_deps.append(dep)
+        
+        if not new_deps:
+            print_info("没有新的依赖需要添加到requirements.txt")
+            return True
+        
+        # 如果没有找到插件依赖部分，添加到文件末尾
+        if plugin_section_index == -1:
+            # 确保文件末尾有空行
+            if existing_lines and existing_lines[-1].strip():
+                existing_lines.append("")
+            existing_lines.append("# 插件依赖")
+            for dep in new_deps:
+                existing_lines.append(dep)
+        else:
+            # 在插件依赖部分后添加新的依赖
+            insert_position = plugin_section_index + 1
+            # 跳过该部分已有的依赖
+            while insert_position < len(existing_lines) and existing_lines[insert_position].strip() and not existing_lines[insert_position].strip().startswith('#'):
+                insert_position += 1
+            
+            # 插入新依赖
+            for dep in reversed(new_deps):
+                existing_lines.insert(insert_position, dep)
+        
+        # 写入文件
+        with open(req_file_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(existing_lines))
+            # 确保文件末尾有换行符
+            f.write('\n')
+        
+        print_info(f"已将以下依赖添加到requirements.txt: {', '.join(new_deps)}")
+        return True
+    except Exception as e:
+        print_error(f"向requirements.txt添加依赖时出错: {str(e)}")
+        import traceback
+        print_error(traceback.format_exc())
+        # 即使出现错误，也尝试简单追加依赖到文件末尾
+        try:
+            with open(req_file_path, 'a+', encoding='utf-8') as f:
+                f.write("\n\n# 插件依赖 (自动添加 - 可能有错误)\n")
+                for dep in dependencies:
+                    f.write(f"{dep}\n")
+            print_warning(f"尝试使用备用方法添加依赖到requirements.txt")
+        except:
+            pass
+        return False
+
+def is_in_china():
+    """检测是否在中国网络环境"""
+    try:
+        import socket
+        import urllib.request
+        import time
+        
+        # 设置超时
+        socket.setdefaulttimeout(5)
+        
+        # 测试国内外网站响应时间
+        domains = {
+            "china": ["baidu.com", "aliyun.com", "qq.com"],
+            "global": ["google.com", "github.com", "pypi.org"]
+        }
+        
+        china_response_times = []
+        global_response_times = []
+        
+        for domain in domains["china"]:
+            try:
+                start_time = time.time()
+                urllib.request.urlopen(f"http://{domain}", timeout=3)
+                response_time = time.time() - start_time
+                china_response_times.append(response_time)
+            except:
+                pass
+                
+        for domain in domains["global"]:
+            try:
+                start_time = time.time()
+                urllib.request.urlopen(f"http://{domain}", timeout=3)
+                response_time = time.time() - start_time
+                global_response_times.append(response_time)
+            except:
+                pass
+        
+        # 如果国内站点响应快，国外站点响应慢或无响应，判断为国内网络
+        if (china_response_times and 
+            (not global_response_times or 
+             min(china_response_times) < min(global_response_times) * 0.5)):
+            print_info("检测到国内网络环境，将使用阿里云镜像源")
+            return True
+        return False
+    except:
+        print_warning("网络环境检测失败，默认不使用国内镜像")
+        return False
+
+def get_pip_mirrors():
+    """获取推荐的pip镜像源列表"""
+    mirrors = [
+        {"name": "阿里云", "url": "https://mirrors.aliyun.com/pypi/simple/"},
+        {"name": "腾讯云", "url": "https://mirrors.cloud.tencent.com/pypi/simple/"},
+        {"name": "华为云", "url": "https://repo.huaweicloud.com/repository/pypi/simple/"},
+        {"name": "清华大学", "url": "https://pypi.tuna.tsinghua.edu.cn/simple/"},
+        {"name": "中国科技大学", "url": "https://pypi.mirrors.ustc.edu.cn/simple/"}
+    ]
+    return mirrors
+
+def scan_plugin_dependencies():
+    """扫描plugins目录，查找所有插件依赖"""
+    try:
+        import importlib.util
+        
+        plugins_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plugins')
+        if not os.path.exists(plugins_dir):
+            print_info("插件目录不存在，跳过依赖扫描")
+            return []
+        
+        all_dependencies = []
+        
+        # 遍历插件目录下的文件
+        for file in os.listdir(plugins_dir):
+            if file.endswith('.py'):
+                plugin_name = file[:-3]  # 移除.py扩展名
+                try:
+                    # 反射加载插件模块
+                    spec = importlib.util.spec_from_file_location(
+                        f"plugins.{plugin_name}", 
+                        os.path.join(plugins_dir, file)
+                    )
+                    
+                    if spec is None:
+                        continue
+                    
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    
+                    if hasattr(module, 'Plugin'):
+                        # 检查插件是否定义了package_dependencies
+                        plugin_class = module.Plugin
+                        try:
+                            # 插件类应该至少有一个初始化方法，判断参数个数
+                            import inspect
+                            sig = inspect.signature(plugin_class.__init__)
+                            params = list(sig.parameters.values())
+                            
+                            # 如果只需要self参数
+                            if len(params) == 1:
+                                plugin_instance = plugin_class()
+                            else:
+                                # 创建一个临时空对象，让插件有正确的self参数
+                                class TempApp:
+                                    pass
+                                plugin_instance = plugin_class(TempApp())
+                            
+                            if hasattr(plugin_instance, 'package_dependencies') and plugin_instance.package_dependencies:
+                                plugin_name = getattr(plugin_instance, 'name', plugin_name)
+                                print_info(f"检测到插件 '{plugin_name}' 的依赖项")
+                                all_dependencies.extend(plugin_instance.package_dependencies)
+                        except Exception as e:
+                            print_warning(f"检查插件 {plugin_name} 依赖时出错: {str(e)}")
+                except Exception as e:
+                    print_warning(f"加载插件 {plugin_name} 失败: {str(e)}")
+        
+        return all_dependencies
+    except Exception as e:
+        print_error(f"扫描插件依赖时出错: {str(e)}")
+        return []
+
+def check_and_add_plugin_dependencies_to_requirements():
+    """检查插件依赖是否在requirements.txt中，如果不存在则添加"""
+    # 获取所有插件依赖
+    plugin_dependencies = scan_plugin_dependencies()
+    if not plugin_dependencies:
+        print_info("没有检测到插件依赖项")
+        return True
+    
+    print_info(f"检测到 {len(plugin_dependencies)} 个插件依赖项")
+    
+    # 处理依赖格式，提取纯依赖名称列表
+    formatted_dependencies = []
+    for dep in plugin_dependencies:
+        if isinstance(dep, dict):
+            package_name = dep.get('name', '')
+            package_version = dep.get('version', '')
+            package_optional = dep.get('optional', False)
+            
+            # 只处理必需依赖
+            if not package_optional:
+                package_full = f"{package_name}{package_version}" if package_version else package_name
+                formatted_dependencies.append(package_full)
+        else:
+            # 旧格式：直接是字符串
+            formatted_dependencies.append(dep)
+    
+    if not formatted_dependencies:
+        print_info("没有必需的插件依赖需要添加")
+        return True
+    
+    # 检查requirements.txt文件
+    req_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requirements.txt')
+    if not os.path.exists(req_file_path):
+        print_warning("requirements.txt文件不存在，将创建新文件")
+        try:
+            with open(req_file_path, 'w', encoding='utf-8') as f:
+                f.write("# 插件依赖\n")
+                for dep in formatted_dependencies:
+                    f.write(f"{dep}\n")
+            print_info(f"已创建requirements.txt并添加插件依赖")
+            return True
+        except Exception as e:
+            print_error(f"创建requirements.txt文件失败: {str(e)}")
+            return False
+    
+    # 读取requirements.txt，检查依赖是否已存在
+    try:
+        existing_deps = []
+        with open(req_file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    existing_deps.append(line)
+        
+        # 找出需要添加的依赖
+        new_deps = []
+        for dep in formatted_dependencies:
+            dep_name = dep.split('>')[0].split('=')[0].split('<')[0].strip()
+            if not any(d.split('>')[0].split('=')[0].split('<')[0].strip() == dep_name for d in existing_deps):
+                new_deps.append(dep)
+        
+        if not new_deps:
+            print_info("所有插件依赖已在requirements.txt中")
+            return True
+        
+        # 添加新依赖到requirements.txt
+        with open(req_file_path, 'a+', encoding='utf-8') as f:
+            f.seek(0, os.SEEK_END)
+            # 确保文件不是以换行符结尾
+            if f.tell() > 0:
+                f.seek(f.tell() - 1)
+                last_char = f.read(1)
+                if last_char != '\n':
+                    f.write('\n')
+            
+            # 检查是否有插件依赖部分
+            f.seek(0)
+            content = f.read()
+            if "# 插件依赖" not in content:
+                f.write("\n# 插件依赖\n")
+            
+            # 添加新依赖
+            for dep in new_deps:
+                f.write(f"{dep}\n")
+        
+        print_info(f"已将以下插件依赖添加到requirements.txt: {', '.join(new_deps)}")
+        return True
+    except Exception as e:
+        print_error(f"检查和添加插件依赖到requirements.txt失败: {str(e)}")
+        return False
+
 def main():
     """主函数"""
     # 显示欢迎信息
@@ -509,6 +874,10 @@ def main():
             input("按Enter键退出...")
             sys.exit(1)
     
+    # 首先检查并添加插件依赖到requirements.txt
+    print_info("检查插件依赖...")
+    check_and_add_plugin_dependencies_to_requirements()
+    
     # 检查虚拟环境，如果不存在则创建
     venv_python = create_venv()
     if not venv_python:
@@ -516,7 +885,7 @@ def main():
         input("按Enter键退出...")
         sys.exit(1)
     
-    # 检查并更新包
+    # 检查并更新包 - 这会处理所有在requirements.txt中的依赖，包括刚添加的插件依赖
     check_and_update_packages()
     
     # 运行应用
