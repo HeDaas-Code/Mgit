@@ -13,7 +13,7 @@ import tempfile
 import os
 
 class MarkdownHighlighter(QSyntaxHighlighter):
-    """ Markdown语法高亮器 """
+    """ Markdown语法高亮器 - VSCode风格 """
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -24,43 +24,45 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         """ 初始化高亮规则 """
         self.highlightingRules = []
         
-        # 使用浅色主题的颜色
+        # 使用VSCode主题的颜色
         self.initThemeColors(dark_mode=False)
         
     def initThemeColors(self, dark_mode=False):
-        """ 根据主题初始化颜色 """
+        """ 根据主题初始化颜色 - 使用VSCode配色 """
         self.dark_mode = dark_mode
         self.highlightingRules = []
         
-        # 根据主题选择合适的颜色
+        # 使用VSCode的配色方案
         if dark_mode:
-            heading_color = "#58B2FF"  # 亮蓝色
-            bold_color = "#FFFFFF"     # 白色
-            italic_color = "#FFFFFF"   # 白色
-            code_bg_color = "#2D2D2D"  # 深灰色
-            code_fg_color = "#FF6B6B"  # 亮红色
-            link_color = "#58ACFA"     # 亮蓝色
-            image_color = "#56D6C9"    # 亮青色
-            quote_fg_color = "#A0A0A0" # 浅灰色
-            quote_bg_color = "#2A2A2A" # 深灰色
-            hr_color = "#A0A0A0"       # 浅灰色
-            list_color = "#BF8BFF"     # 浅紫色
-            task_color = "#5AE485"     # 浅绿色
-            table_color = "#FF9E64"    # 浅橙色
+            # VSCode深色主题颜色
+            heading_color = "#569CD6"  # 蓝色（关键字色）
+            bold_color = "#DCDCAA"     # 淡黄色（函数色）
+            italic_color = "#9CDCFE"   # 浅蓝色（变量色）
+            code_bg_color = "#1E1E1E"  # VSCode编辑器背景
+            code_fg_color = "#CE9178"  # 橙粉色（字符串色）
+            link_color = "#3794FF"     # 亮蓝色
+            image_color = "#4EC9B0"    # 青绿色（类型色）
+            quote_fg_color = "#6A9955" # 绿色（注释色）
+            quote_bg_color = "#252526" # 侧边栏背景色
+            hr_color = "#858585"       # 灰色
+            list_color = "#C586C0"     # 紫色
+            task_color = "#4EC9B0"     # 青绿色
+            table_color = "#D7BA7D"    # 金黄色
         else:
-            heading_color = "#0078D7"  # 蓝色
-            bold_color = "#000000"     # 黑色
-            italic_color = "#000000"   # 黑色
-            code_bg_color = "#F5F5F5"  # 浅灰色
-            code_fg_color = "#D73A49"  # 红色
-            link_color = "#0366D6"     # 蓝色
-            image_color = "#56B6C2"    # 青色
-            quote_fg_color = "#6A737D" # 灰色
-            quote_bg_color = "#F6F8FA" # 浅灰色
-            hr_color = "#6A737D"       # 灰色
-            list_color = "#6F42C1"     # 紫色
-            task_color = "#22863A"     # 绿色
-            table_color = "#E36209"    # 橙色
+            # VSCode浅色主题颜色
+            heading_color = "#0000FF"  # 蓝色（关键字色）
+            bold_color = "#795E26"     # 棕色（函数色）
+            italic_color = "#001080"   # 深蓝色（变量色）
+            code_bg_color = "#F5F5F5"  # 浅灰背景
+            code_fg_color = "#A31515"  # 红色（字符串色）
+            link_color = "#0066BF"     # 蓝色
+            image_color = "#267F99"    # 青色（类型色）
+            quote_fg_color = "#008000" # 绿色（注释色）
+            quote_bg_color = "#F3F3F3" # 侧边栏背景色
+            hr_color = "#6A6A6A"       # 灰色
+            list_color = "#AF00DB"     # 紫色
+            task_color = "#267F99"     # 青色
+            table_color = "#795E26"    # 棕色
         
         # 标题格式
         headingFormat = QTextCharFormat()
