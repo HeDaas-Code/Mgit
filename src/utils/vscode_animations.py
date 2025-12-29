@@ -264,13 +264,18 @@ class AnimationHelper:
         animation = QPropertyAnimation(widget, property_name)
         animation.setDuration(duration)
         
-        start_pos = widget.pos()
-        bounce_pos = QPoint(start_pos.x(), start_pos.y() - amplitude)
+        # 动态获取起始位置（在动画开始时）
+        def start_animation():
+            current_pos = widget.pos()
+            bounce_pos = QPoint(current_pos.x(), current_pos.y() - amplitude)
+            
+            animation.setStartValue(current_pos)
+            animation.setKeyValueAt(0.3, bounce_pos)
+            animation.setKeyValueAt(0.6, current_pos)
+            animation.setEndValue(current_pos)
         
-        animation.setStartValue(start_pos)
-        animation.setKeyValueAt(0.3, bounce_pos)
-        animation.setKeyValueAt(0.6, start_pos)
-        animation.setEndValue(start_pos)
+        # 在动画开始前设置值
+        animation.aboutToStart.connect(start_animation)
         animation.setEasingCurve(QEasingCurve.OutBounce)
         
         return animation

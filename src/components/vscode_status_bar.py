@@ -176,9 +176,13 @@ class VSCodeStatusBar(QWidget):
             }}
         """
         
-        for button in [self.branchButton, self.lineColumnButton, self.encodingButton,
-                      self.eolButton, self.languageButton, self.feedbackButton,
-                      self.notificationButton]:
+        # 使用列表推导式应用样式到所有按钮
+        all_buttons = [
+            self.branchButton, self.lineColumnButton, self.encodingButton,
+            self.eolButton, self.languageButton, self.feedbackButton,
+            self.notificationButton
+        ]
+        for button in all_buttons:
             button.setStyleSheet(button_style)
     
     def setBranch(self, branch_name):

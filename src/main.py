@@ -123,17 +123,17 @@ def main():
     # 检查是否需要应用自定义深色主题
     try:
         from src.utils.config_manager import ConfigManager
+        from src.theme.vscode_theme import apply_vscode_dark_theme, apply_vscode_light_theme
+        
         config = ConfigManager()
         theme = config.get_theme()
         
         # 应用VSCode风格主题
         info("正在应用VSCode风格主题...")
         if theme == 'dark' or (theme == 'auto' and isDarkTheme()):
-            from src.theme.vscode_theme import apply_vscode_dark_theme
             apply_vscode_dark_theme(app)
             info("应用了VSCode深色主题")
         else:
-            from src.theme.vscode_theme import apply_vscode_light_theme
             apply_vscode_light_theme(app)
             info("应用了VSCode浅色主题")
     except Exception as e:
