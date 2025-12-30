@@ -3,14 +3,14 @@
 
 import os
 import sys
-from PyQt5.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QSplitter, QMessageBox, 
-                           QStackedWidget, QFileDialog, QMenuBar, QMenu, QAction, QApplication)
+from PyQt5.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QSplitter, QMessageBox, 
+                           QStackedWidget, QFileDialog, QMenu, QAction)
 from PyQt5.QtCore import Qt, QSize, pyqtSignal, QTimer
 from PyQt5.QtGui import QIcon, QFont, QKeySequence, QColor, QTextCharFormat, QTextCursor
 
 from qfluentwidgets import (NavigationInterface, NavigationItemPosition, 
                           FluentIcon, SubtitleLabel, setTheme, Theme, 
-                          FluentStyleSheet, InfoBar, InfoBarPosition)
+                          FluentStyleSheet, InfoBar, InfoBarPosition, TogglePushButton)
 
 # 导入自定义组件
 from src.components.editor import MarkdownEditor
@@ -134,26 +134,54 @@ class MainWindow(QMainWindow):
         
         leftLayout.addWidget(self.leftSplitter)
         
-        # 创建中间编辑器和预览区分割器
-        self.editorSplitter = QSplitter(Qt.Horizontal)
-        
         # 创建Markdown编辑器（传入配置管理器）
         self.editor = MarkdownEditor(self, config_manager=self.configManager)
         
         # 创建Markdown预览面板
         self.preview = MarkdownPreview(self)
         
+        # 创建编辑器/预览容器（使用stacked widget替代分屏显示）
+        self.editorPreviewContainer = QWidget()
+        self.editorPreviewLayout = QVBoxLayout(self.editorPreviewContainer)
+        self.editorPreviewLayout.setContentsMargins(0, 0, 0, 0)
+        self.editorPreviewLayout.setSpacing(0)
+        
+        # 创建顶部工具栏（包含切换按钮）
+        self.viewToggleToolbar = QWidget()
+        toggleToolbarLayout = QHBoxLayout(self.viewToggleToolbar)
+        toggleToolbarLayout.setContentsMargins(5, 2, 5, 2)
+        toggleToolbarLayout.setSpacing(5)
+        
+        # 添加弹性空间将按钮推到右侧
+        toggleToolbarLayout.addStretch()
+        
+        # 创建预览切换按钮
+        self.previewToggleButton = TogglePushButton("预览", self)
+        self.previewToggleButton.setIcon(FluentIcon.VIEW.icon())
+        self.previewToggleButton.setToolTip("切换编辑/预览模式")
+        self.previewToggleButton.setChecked(False)  # 默认显示编辑模式
+        self.previewToggleButton.clicked.connect(self.toggleEditorPreview)
+        toggleToolbarLayout.addWidget(self.previewToggleButton)
+        
+        self.editorPreviewLayout.addWidget(self.viewToggleToolbar)
+        
+        # 创建用于切换视图的QStackedWidget
+        self.editorPreviewStack = QStackedWidget()
+        self.editorPreviewStack.addWidget(self.editor)   # 索引 0: 编辑器
+        self.editorPreviewStack.addWidget(self.preview)  # 索引 1: 预览
+        self.editorPreviewStack.setCurrentIndex(0)  # 默认显示编辑器
+        
+        self.editorPreviewLayout.addWidget(self.editorPreviewStack)
+        
+        # 记录当前视图模式（False: 编辑模式，True: 预览模式）
+        self.isPreviewMode = False
+        
         # 创建Git面板
         self.gitPanel = GitPanel(self)
         
-        # 添加组件到分割器
-        self.editorSplitter.addWidget(self.editor)
-        self.editorSplitter.addWidget(self.preview)
-        self.editorSplitter.setSizes([500, 500])
-        
         # 添加组件到主分割器
         self.mainSplitter.addWidget(leftPanel)
-        self.mainSplitter.addWidget(self.editorSplitter)
+        self.mainSplitter.addWidget(self.editorPreviewContainer)
         self.mainSplitter.addWidget(self.gitPanel)
         self.mainSplitter.setSizes([250, 700, 250])
         
@@ -302,10 +330,10 @@ class MainWindow(QMainWindow):
         self.toggleExplorerAction.triggered.connect(self.toggleExplorer)
         viewMenu.addAction(self.toggleExplorerAction)
         
-        # 显示/隐藏预览
+        # 显示/隐藏预览（切换编辑/预览模式）
         self.togglePreviewAction = QAction("Markdown预览", self)
         self.togglePreviewAction.setCheckable(True)
-        self.togglePreviewAction.setChecked(True)
+        self.togglePreviewAction.setChecked(False)  # 默认显示编辑模式，不是预览模式
         self.togglePreviewAction.triggered.connect(self.togglePreview)
         viewMenu.addAction(self.togglePreviewAction)
         
@@ -1048,23 +1076,34 @@ class MainWindow(QMainWindow):
                     self.leftSplitter.setSizes([200, sizes[1]])
                     
     def togglePreview(self):
-        """切换Markdown预览显示状态"""
-        if hasattr(self, 'preview') and hasattr(self, 'editorSplitter'):
+        """切换Markdown预览显示状态（通过菜单调用）"""
+        if hasattr(self, 'editorPreviewStack'):
             visible = self.togglePreviewAction.isChecked()
-            sizes = self.editorSplitter.sizes()
-            if not visible:
-                # 保存当前大小
-                self.previewSize = sizes[1]
-                # 隐藏
-                self.editorSplitter.setSizes([sizes[0] + sizes[1], 0])
+            if visible:
+                # 切换到预览模式
+                self.isPreviewMode = True
+                self.updatePreview()  # 更新预览内容
+                self.editorPreviewStack.setCurrentIndex(1)  # 显示预览
+                self.previewToggleButton.setChecked(True)
             else:
-                # 显示并恢复大小
-                if hasattr(self, 'previewSize') and self.previewSize:
-                    self.editorSplitter.setSizes([sizes[0], self.previewSize])
-                else:
-                    # 默认分配大小
-                    total = sum(sizes)
-                    self.editorSplitter.setSizes([total // 2, total // 2])
+                # 切换到编辑模式
+                self.isPreviewMode = False
+                self.editorPreviewStack.setCurrentIndex(0)  # 显示编辑器
+                self.previewToggleButton.setChecked(False)
+                
+    def toggleEditorPreview(self):
+        """切换编辑器和预览视图（通过按钮调用）"""
+        if hasattr(self, 'editorPreviewStack'):
+            self.isPreviewMode = self.previewToggleButton.isChecked()
+            if self.isPreviewMode:
+                # 切换到预览模式
+                self.updatePreview()  # 更新预览内容
+                self.editorPreviewStack.setCurrentIndex(1)  # 显示预览
+                self.togglePreviewAction.setChecked(True)
+            else:
+                # 切换到编辑模式
+                self.editorPreviewStack.setCurrentIndex(0)  # 显示编辑器
+                self.togglePreviewAction.setChecked(False)
                     
     def toggleGitPanel(self):
         """切换Git面板显示状态"""
