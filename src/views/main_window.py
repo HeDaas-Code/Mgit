@@ -4,7 +4,7 @@
 import os
 import sys
 from PyQt5.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QSplitter, QMessageBox, 
-                           QStackedWidget, QFileDialog, QMenuBar, QMenu, QAction, QApplication)
+                           QStackedWidget, QFileDialog, QMenu, QAction)
 from PyQt5.QtCore import Qt, QSize, pyqtSignal, QTimer
 from PyQt5.QtGui import QIcon, QFont, QKeySequence, QColor, QTextCharFormat, QTextCursor
 
@@ -1094,7 +1094,7 @@ class MainWindow(QMainWindow):
     def toggleEditorPreview(self):
         """切换编辑器和预览视图（通过按钮调用）"""
         if hasattr(self, 'editorPreviewStack'):
-            self.isPreviewMode = not self.isPreviewMode
+            self.isPreviewMode = self.previewToggleButton.isChecked()
             if self.isPreviewMode:
                 # 切换到预览模式
                 self.updatePreview()  # 更新预览内容
