@@ -17,6 +17,13 @@ MGit是一款基于Python的Markdown笔记应用，结合了直观的编辑体�
 - **资源管理优化**：智能的Web资源清理机制，确保应用长时间运行不会内存泄漏
 - **云存储与本地备份**：支持将笔记存储在GitHub等Git服务中，同时保留本地备份
 - **插件系统**：基于PluginBase库实现的插件架构，允许用户开发和安装自定义插件扩展功能
+- **AI写作助手**：全新的写作Copilot插件，提供智能补全、编辑、创作、对话和代理模式
+  - **行内补全**：基于上下文的智能文本续写
+  - **编辑模式**：改进写作、修正语法、扩展内容
+  - **创作模式**：AI驱动的内容生成
+  - **对话模式**：与AI助手实时交互
+  - **代理模式**：智能代理自动执行复杂任务
+  - **任务审查**：类似GitHub PR的审查机制
 - **组件化架构**：采用Component-Based Development设计模式，具有高度的可扩展性和可维护性
 - **强大的日志管理**：全面的日志分析、优化和清理系统，保持应用性能与存储效率
 
@@ -28,6 +35,8 @@ MGit是一款基于Python的Markdown笔记应用，结合了直观的编辑体�
 - GitPython
 - PyQtWebEngine
 - PluginBase
+- Langchain (AI功能)
+- OpenAI Compatible API
 
 ## 使用场景
 
@@ -72,6 +81,7 @@ MGit提供了一个简单易用的启动脚本`start.py`，支持自动配置环
 - [安装指南](./docs/installation.md)
 - [OAuth认证指南](./docs/oauth_authentication.md)
 - [插件开发指南](./docs/plugin_development.md)
+- [写作Copilot使用指南](./docs/writing_copilot_guide.md) 🆕
 - [更新日志](./CHANGELOG.md)
 - [日志管理系统更新文档](./docs/log_system_updates.md)
 - [日志优化器用户指南](./docs/log_optimizer_README.md)

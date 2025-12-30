@@ -1,5 +1,155 @@
 # 更新日志
 
+## 写作Copilot插件 - 2024-12-30
+
+### 重大新增
+
+本次更新为MGit添加了全新的AI驱动写作助手插件 - 写作Copilot，设计理念参考GitHub Copilot，专注于提升Markdown文档的写作体验。
+
+#### 核心功能
+
+**1. 行内补全（Inline Completion）**
+- 自动触发和手动触发两种模式
+- 基于上下文的智能文本续写
+- 可配置的触发延迟时间
+- 补全预览和接受/拒绝机制
+
+**2. 编辑模式（Edit Mode）**
+- 改进写作：提升文本质量和可读性
+- 修正语法：自动修正语法和拼写错误
+- 扩展内容：为选定内容添加更多细节
+- 简化内容：精简和简化复杂文本
+- 重写：用不同方式重新表述内容
+
+**3. 创作模式（Creation Mode）**
+- 基于提示的内容生成
+- 支持多种文档类型创作
+- 一键插入到文档中
+
+**4. 对话模式（Chat Mode）**
+- 与AI助手实时对话
+- 基于当前文档的上下文感知
+- 对话历史记录管理
+- 提供写作建议和技术支持
+
+**5. 代理模式（Agent Mode）**
+- 智能代理执行复杂任务
+- 集成Langchain代理框架
+- 文档工具：读取、编辑、创建文档
+- Git工具：创建分支、切换分支、提交更改
+- 详细的执行日志
+
+**6. 任务审查系统（Task Review）**
+- 类似GitHub PR的审查机制
+- 查看代理执行的任务详情
+- 批准或拒绝任务
+- 控制更改的应用时机
+
+#### 技术实现
+
+**AI集成**
+- 默认使用SiliconFlow API
+- 支持多种AI模型：
+  - DeepSeek V2.5
+  - Qwen2.5 7B
+  - GLM-4 9B
+  - Llama 3.1 8B
+- 基于Langchain构建代理系统
+- OpenAI兼容接口
+
+**工具系统**
+- 文档操作工具：
+  - `read_current_document`: 读取当前文档
+  - `read_document`: 读取指定文档
+  - `write_document`: 写入文档
+  - `edit_current_document`: 编辑当前文档
+  - `append_to_document`: 追加内容
+  - `insert_at_cursor`: 插入内容
+  - `list_documents`: 列出文档
+- Git操作工具：
+  - `create_branch`: 创建分支
+  - `switch_branch`: 切换分支
+  - `commit_changes`: 提交更改
+  - `get_git_status`: 获取状态
+  - `list_branches`: 列出分支
+  - `get_commit_history`: 获取历史
+
+**UI组件**
+- 标签页式界面设计
+- 异步处理，不阻塞主界面
+- 实时状态更新
+- 丰富的用户交互
+
+#### 配置选项
+
+- API基础URL配置
+- API密钥管理
+- 模型选择
+- 补全触发方式
+- 补全延迟时间
+- 任务审查开关
+- 最大上下文长度
+
+#### 文档和示例
+
+- 完整的README文档
+- 快速开始指南（QUICKSTART.md）
+- 丰富的使用示例（EXAMPLES.md）
+- 配置模板文件
+- 主文档中添加使用指南
+
+#### 依赖更新
+
+新增依赖包：
+- `langchain>=0.1.0`
+- `langchain-community>=0.0.20`
+- `langchain-openai>=0.0.5`
+- `openai>=1.0.0`
+
+#### 文件结构
+
+```
+plugins/writing_copilot/
+├── __init__.py              # 插件主入口
+├── README.md                # 详细文档
+├── QUICKSTART.md            # 快速开始
+├── EXAMPLES.md              # 使用示例
+├── config.example.json      # 配置模板
+├── ui/
+│   ├── __init__.py
+│   └── copilot_widget.py    # UI组件
+├── tools/
+│   ├── __init__.py
+│   └── document_tools.py    # 代理工具
+├── agents/
+│   └── __init__.py          # 代理相关
+└── resources/               # 资源文件
+```
+
+#### 使用场景
+
+- 技术文档编写
+- 博客写作
+- 项目文档管理
+- 内容翻译
+- 批量文档处理
+- Git工作流自动化
+
+### 改进优化
+
+- 更新requirements.txt添加AI相关依赖
+- 主README添加写作Copilot功能介绍
+- 新增写作Copilot使用指南文档
+
+### 注意事项
+
+- 需要SiliconFlow API密钥才能使用
+- 首次使用需要安装AI相关依赖
+- 建议Python 3.10+版本
+- 代理模式需要Git管理器可用
+
+---
+
 ## VSCode风格UI重构 - 2025-12-29
 
 ### 重大更新
