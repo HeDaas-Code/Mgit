@@ -7,9 +7,8 @@ VSCode风格动画工具
 """
 
 from PyQt5.QtCore import (QPropertyAnimation, QEasingCurve, QParallelAnimationGroup,
-                          QSequentialAnimationGroup, QAbstractAnimation, QVariantAnimation,
-                          QPoint, QRect, QSize, pyqtProperty)
-from PyQt5.QtWidgets import QWidget, QGraphicsOpacityEffect
+                          QSequentialAnimationGroup, QVariantAnimation, QPoint, Qt)
+from PyQt5.QtWidgets import QGraphicsOpacityEffect
 from PyQt5.QtGui import QColor
 
 
@@ -29,8 +28,13 @@ class AnimationHelper:
         Returns:
             QPropertyAnimation: 动画对象
         """
-        effect = QGraphicsOpacityEffect(widget)
-        widget.setGraphicsEffect(effect)
+        # 尝试复用已有的透明度效果，避免重复创建导致内存泄漏
+        existing_effect = widget.graphicsEffect()
+        if isinstance(existing_effect, QGraphicsOpacityEffect):
+            effect = existing_effect
+        else:
+            effect = QGraphicsOpacityEffect(widget)
+            widget.setGraphicsEffect(effect)
         
         animation = QPropertyAnimation(effect, b"opacity")
         animation.setDuration(duration)
@@ -264,18 +268,14 @@ class AnimationHelper:
         animation = QPropertyAnimation(widget, property_name)
         animation.setDuration(duration)
         
-        # 动态获取起始位置（在动画开始时）
-        def start_animation():
-            current_pos = widget.pos()
-            bounce_pos = QPoint(current_pos.x(), current_pos.y() - amplitude)
-            
-            animation.setStartValue(current_pos)
-            animation.setKeyValueAt(0.3, bounce_pos)
-            animation.setKeyValueAt(0.6, current_pos)
-            animation.setEndValue(current_pos)
+        # 基于当前组件位置设置起始值和关键帧
+        current_pos = widget.pos()
+        bounce_pos = QPoint(current_pos.x(), current_pos.y() - amplitude)
         
-        # 在动画开始前设置值
-        animation.aboutToStart.connect(start_animation)
+        animation.setStartValue(current_pos)
+        animation.setKeyValueAt(0.3, bounce_pos)
+        animation.setKeyValueAt(0.6, current_pos)
+        animation.setEndValue(current_pos)
         animation.setEasingCurve(QEasingCurve.OutBounce)
         
         return animation
@@ -295,6 +295,7 @@ class AnimationHelper:
         animation = QPropertyAnimation(widget, b"pos")
         animation.setDuration(duration)
         
+        # 基于当前组件位置设置起始值和关键帧
         start_pos = widget.pos()
         
         animation.setStartValue(start_pos)
@@ -318,8 +319,13 @@ class AnimationHelper:
         Returns:
             QPropertyAnimation: 动画对象
         """
-        effect = QGraphicsOpacityEffect(widget)
-        widget.setGraphicsEffect(effect)
+        # 尝试复用已有的透明度效果，避免重复创建导致内存泄漏
+        existing_effect = widget.graphicsEffect()
+        if isinstance(existing_effect, QGraphicsOpacityEffect):
+            effect = existing_effect
+        else:
+            effect = QGraphicsOpacityEffect(widget)
+            widget.setGraphicsEffect(effect)
         
         animation = QPropertyAnimation(effect, b"opacity")
         animation.setDuration(duration)
@@ -354,7 +360,8 @@ class VSCodeAnimationPresets:
         else:
             # 收起侧边栏
             animation = AnimationHelper.collapse_width(sidebar_widget, 250, 0, duration)
-            animation.finished.connect(sidebar_widget.hide)
+            # 使用lambda配合Qt.SingleShot连接避免重复连接
+            animation.finished.connect(lambda: sidebar_widget.hide(), type=Qt.SingleShotConnection)
             return animation
     
     @staticmethod
@@ -376,7 +383,9 @@ class VSCodeAnimationPresets:
         else:
             # 收起面板
             animation = AnimationHelper.collapse_height(panel_widget, 200, 0, duration)
-            animation.finished.connect(panel_widget.hide)
+            # 使用lambda配合Qt.SingleShot连接避免重复连接
+            # 使用lambda配合Qt.SingleShot连接避免重复连接
+            animation.finished.connect(lambda: panel_widget.hide(), type=Qt.SingleShotConnection)
             return animation
     
     @staticmethod
@@ -393,7 +402,8 @@ class VSCodeAnimationPresets:
         """
         # 淡出旧标签页
         fade_out = AnimationHelper.fade_out(old_tab, duration)
-        fade_out.finished.connect(old_tab.hide)
+        # 使用lambda配合Qt.SingleShot连接避免重复连接和引用错误
+        fade_out.finished.connect(lambda: old_tab.hide(), type=Qt.SingleShotConnection)
         
         # 淡入新标签页
         new_tab.show()

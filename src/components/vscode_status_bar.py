@@ -8,8 +8,8 @@ VSCode风格状态栏组件
 
 from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QLabel, QPushButton, 
                             QSpacerItem, QSizePolicy)
-from PyQt5.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QFont
 from qfluentwidgets import FluentIcon
 
 
@@ -27,7 +27,6 @@ class VSCodeStatusBar(QWidget):
         super().__init__(parent)
         self.dark_mode = True
         self.initUI()
-        self.setupAnimation()
         
     def initUI(self):
         """初始化UI"""
@@ -124,13 +123,6 @@ class VSCodeStatusBar(QWidget):
             }
         """)
         return button
-        
-    def setupAnimation(self):
-        """设置动画效果"""
-        # 用于淡入淡出效果的动画
-        self.fadeAnimation = QPropertyAnimation(self, b"windowOpacity")
-        self.fadeAnimation.setDuration(200)
-        self.fadeAnimation.setEasingCurve(QEasingCurve.InOutQuad)
         
     def applyTheme(self, dark_mode):
         """应用主题

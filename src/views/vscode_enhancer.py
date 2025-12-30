@@ -6,9 +6,8 @@
 为主窗口添加VSCode风格的UI增强功能
 """
 
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QSplitter
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor
+from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
+from PyQt5.QtCore import QPropertyAnimation, QEasingCurve
 
 from src.components.vscode_activity_bar import VSCodeActivityBar
 from src.components.vscode_status_bar import VSCodeStatusBar
@@ -37,9 +36,6 @@ class VSCodeMainWindowEnhancer:
         
     def enhance(self):
         """应用VSCode风格增强"""
-        # 保存原有组件的引用
-        original_layout = self.main_window.centralWidget().layout()
-        
         # 创建新的布局结构
         self._createVSCodeLayout()
         
@@ -132,9 +128,7 @@ class VSCodeMainWindowEnhancer:
         
         # 隐藏原有状态栏（如果存在）
         if hasattr(main_window, 'statusBar'):
-            original_statusbar = main_window.statusBar
-            if original_statusbar:
-                original_statusbar.hide()
+            main_window.statusBar().hide()
         
     def _setupAnimations(self):
         """设置动画效果"""
@@ -240,6 +234,12 @@ class VSCodeMainWindowEnhancer:
             # 隐藏侧边栏
             self.sidebar_animation.setStartValue(self.sidebar_container.width())
             self.sidebar_animation.setEndValue(0)
+            # 避免重复连接导致的内存泄漏和多次回调
+            try:
+                self.sidebar_animation.finished.disconnect()
+            except TypeError:
+                # 如果没有已连接的槽，disconnect 会抛出 TypeError，忽略即可
+                pass
             self.sidebar_animation.finished.connect(lambda: self.sidebar_container.hide())
         else:
             # 显示侧边栏

@@ -138,12 +138,19 @@ def main():
             info("应用了VSCode浅色主题")
     except Exception as e:
         warning(f"应用VSCode主题失败: {str(e)}")
-        # 回退到原有主题
+        # 回退到原有主题，尊重用户的主题偏好
         try:
             from src.theme import apply_custom_dark_theme
-            apply_custom_dark_theme(app)
-            info("回退到自定义深色主题")
-        except:
+            config = ConfigManager()
+            theme = config.get_theme()
+            
+            # 只在深色主题或自动深色时回退到深色
+            if theme == 'dark' or (theme == 'auto' and isDarkTheme()):
+                apply_custom_dark_theme(app)
+                info("回退到自定义深色主题")
+            # 浅色主题不需要特殊处理，使用默认
+        except Exception:
+            # 如果回退也失败，静默忽略，使用系统默认主题
             pass
     
     # 设置关闭时清理缓存

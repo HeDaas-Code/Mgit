@@ -7,9 +7,8 @@ VSCode风格活动栏组件
 """
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QToolButton, 
-                            QSpacerItem, QSizePolicy, QLabel)
-from PyQt5.QtCore import Qt, pyqtSignal, QSize, QPropertyAnimation, QRect
-from PyQt5.QtGui import QIcon, QColor
+                            QSpacerItem, QSizePolicy)
+from PyQt5.QtCore import Qt, pyqtSignal, QSize
 from qfluentwidgets import FluentIcon
 
 

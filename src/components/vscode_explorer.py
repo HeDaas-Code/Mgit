@@ -7,8 +7,7 @@ VSCode风格文件浏览器扩展
 """
 
 from PyQt5.QtWidgets import QTreeView, QWidget, QVBoxLayout, QLabel, QHBoxLayout
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtGui import QFont
 
 
 def apply_vscode_style_to_explorer(explorer_widget, dark_mode=True):
