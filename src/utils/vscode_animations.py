@@ -352,16 +352,17 @@ class VSCodeAnimationPresets:
             
         Returns:
             QPropertyAnimation: 动画对象
+        
+        注意：每次调用都创建新的动画对象，避免信号连接累积
         """
         if visible:
             # 展开侧边栏
             sidebar_widget.show()
             return AnimationHelper.expand_width(sidebar_widget, 0, 250, duration)
         else:
-            # 收起侧边栏
+            # 收起侧边栏 - 每次创建新动画对象避免信号累积
             animation = AnimationHelper.collapse_width(sidebar_widget, 250, 0, duration)
-            # 使用lambda配合Qt.SingleShot连接避免重复连接
-            animation.finished.connect(lambda: sidebar_widget.hide(), type=Qt.SingleShotConnection)
+            animation.finished.connect(sidebar_widget.hide)
             return animation
     
     @staticmethod
@@ -375,17 +376,17 @@ class VSCodeAnimationPresets:
             
         Returns:
             QPropertyAnimation: 动画对象
+        
+        注意：每次调用都创建新的动画对象，避免信号连接累积
         """
         if visible:
             # 展开面板
             panel_widget.show()
             return AnimationHelper.expand_height(panel_widget, 0, 200, duration)
         else:
-            # 收起面板
+            # 收起面板 - 每次创建新动画对象避免信号累积
             animation = AnimationHelper.collapse_height(panel_widget, 200, 0, duration)
-            # 使用lambda配合Qt.SingleShot连接避免重复连接
-            # 使用lambda配合Qt.SingleShot连接避免重复连接
-            animation.finished.connect(lambda: panel_widget.hide(), type=Qt.SingleShotConnection)
+            animation.finished.connect(panel_widget.hide)
             return animation
     
     @staticmethod
@@ -399,11 +400,12 @@ class VSCodeAnimationPresets:
             
         Returns:
             QParallelAnimationGroup: 动画组
+        
+        注意：每次调用都创建新的动画对象，避免信号连接累积
         """
-        # 淡出旧标签页
+        # 淡出旧标签页 - 每次创建新动画对象避免信号累积
         fade_out = AnimationHelper.fade_out(old_tab, duration)
-        # 使用lambda配合Qt.SingleShot连接避免重复连接和引用错误
-        fade_out.finished.connect(lambda: old_tab.hide(), type=Qt.SingleShotConnection)
+        fade_out.finished.connect(old_tab.hide)
         
         # 淡入新标签页
         new_tab.show()
