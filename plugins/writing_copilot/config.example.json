@@ -1,0 +1,10 @@
+{
+  "api_base_url": "https://api.siliconflow.cn/v1",
+  "api_key": "YOUR_API_KEY_HERE",
+  "model_name": "deepseek-ai/DeepSeek-V2.5",
+  "enable_inline_completion": true,
+  "completion_trigger": "auto",
+  "auto_completion_delay": 1000,
+  "enable_task_review": true,
+  "max_context_length": 4000
+}
