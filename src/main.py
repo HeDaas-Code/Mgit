@@ -123,15 +123,35 @@ def main():
     # 检查是否需要应用自定义深色主题
     try:
         from src.utils.config_manager import ConfigManager
+        from src.theme.vscode_theme import apply_vscode_dark_theme, apply_vscode_light_theme
+        
         config = ConfigManager()
         theme = config.get_theme()
         
+        # 应用VSCode风格主题
+        info("正在应用VSCode风格主题...")
         if theme == 'dark' or (theme == 'auto' and isDarkTheme()):
-            from src.theme import apply_custom_dark_theme
-            custom_theme_qss = apply_custom_dark_theme(app)
-            info("应用了自定义深色主题")
+            apply_vscode_dark_theme(app)
+            info("应用了VSCode深色主题")
+        else:
+            apply_vscode_light_theme(app)
+            info("应用了VSCode浅色主题")
     except Exception as e:
-        warning(f"应用自定义深色主题失败: {str(e)}")
+        warning(f"应用VSCode主题失败: {str(e)}")
+        # 回退到原有主题，尊重用户的主题偏好
+        try:
+            from src.theme import apply_custom_dark_theme
+            config = ConfigManager()
+            theme = config.get_theme()
+            
+            # 只在深色主题或自动深色时回退到深色
+            if theme == 'dark' or (theme == 'auto' and isDarkTheme()):
+                apply_custom_dark_theme(app)
+                info("回退到自定义深色主题")
+            # 浅色主题不需要特殊处理，使用默认
+        except Exception:
+            # 如果回退也失败，静默忽略，使用系统默认主题
+            pass
     
     # 设置关闭时清理缓存
     from PyQt5.QtWebEngineWidgets import QWebEngineProfile
@@ -156,6 +176,17 @@ def main():
     # 启动主窗口
     info("正在初始化主窗口...")
     w = MainWindow()
+    
+    # 应用VSCode风格UI增强
+    info("正在应用VSCode风格UI增强...")
+    try:
+        from src.views.vscode_enhancer import VSCodeMainWindowEnhancer
+        enhancer = VSCodeMainWindowEnhancer(w)
+        enhancer.enhance()
+        info("VSCode风格UI增强应用成功")
+    except Exception as e:
+        warning(f"应用VSCode风格UI增强失败: {str(e)}")
+    
     w.show()
     info("主窗口显示成功")
     

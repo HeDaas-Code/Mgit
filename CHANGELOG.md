@@ -1,5 +1,125 @@
 # 更新日志
 
+## VSCode风格UI重构 - 2025-12-29
+
+### 重大更新
+
+本次更新完全重构了MGit的用户界面，采用VSCode风格的设计语言，提供更加现代化和专业的用户体验。
+
+#### 新增功能
+
+**UI组件**
+- 新增活动栏（Activity Bar）组件：左侧垂直图标导航栏
+  - 资源管理器、搜索、源代码管理、调试、扩展等快速访问按钮
+  - 互斥选择机制和活动指示器
+  - 平滑的悬停和点击效果
+  
+- 新增VSCode风格状态栏组件：底部智能信息栏
+  - 显示Git分支、文件状态、行列号
+  - 显示文件编码、换行符类型、语言模式
+  - 支持点击交互，快速访问相关功能
+  
+- 新增主窗口增强器（VSCodeMainWindowEnhancer）
+  - 重新组织UI布局为VSCode风格
+  - 集成活动栏、侧边栏和状态栏
+  - 实现侧边栏展开/收起动画
+  
+- 新增文件浏览器VSCode风格增强器
+  - VSCode风格的文件树显示
+  - 优化的标题栏和间距
+  - 悬停和选中效果
+
+**主题系统**
+- 完整的VSCode深色主题配色方案
+  - #1E1E1E编辑器背景
+  - #252526侧边栏背景
+  - #333333活动栏背景
+  - #007ACC状态栏背景
+  - 精确还原VSCode的所有UI元素颜色
+  
+- 完整的VSCode浅色主题配色方案
+  - #FFFFFF编辑器背景
+  - #F3F3F3侧边栏背景
+  - 保持与深色主题一致的设计语言
+  
+- 全局QSS样式表系统
+  - 统一的按钮、输入框、列表样式
+  - VSCode风格的滚动条
+  - 平滑的颜色过渡
+
+**动画系统**
+- AnimationHelper动画辅助类
+  - fade_in/fade_out：淡入淡出动画
+  - slide_in/slide_out：滑动动画
+  - expand/collapse：展开收起动画
+  - color_transition：颜色过渡动画
+  - smooth_scroll：平滑滚动
+  - bounce/shake/pulse：特效动画
+  
+- VSCodeAnimationPresets动画预设
+  - sidebar_toggle：侧边栏切换动画
+  - panel_toggle：面板切换动画
+  - tab_switch：标签页切换动画
+  - notification_slide_in：通知滑入动画
+
+#### 改进优化
+
+**编辑器**
+- 更新Markdown语法高亮为VSCode配色
+  - 深色主题：蓝色关键字，橙粉色字符串，绿色注释
+  - 浅色主题：蓝色关键字，红色字符串，绿色注释
+  - 精确还原VSCode的Token颜色
+
+**界面布局**
+- 重构主窗口布局结构
+  - 采用活动栏 + 侧边栏 + 编辑器区域 + 状态栏的布局
+  - 更符合现代IDE的使用习惯
+  - 优化了空间利用率
+
+**交互体验**
+- 所有UI交互都添加了平滑动画
+  - 侧边栏展开/收起：200ms InOutQuad缓动
+  - 内容切换：150ms淡入淡出
+  - 按钮悬停：即时响应，平滑过渡
+- 优化了鼠标悬停和点击反馈
+
+#### 技术架构
+
+**新增文件**
+- `src/theme/vscode_theme.py`：VSCode主题配色定义和应用
+- `src/components/vscode_activity_bar.py`：活动栏组件
+- `src/components/vscode_status_bar.py`：状态栏组件
+- `src/components/vscode_explorer.py`：文件浏览器增强器
+- `src/views/vscode_enhancer.py`：主窗口增强器
+- `src/utils/vscode_animations.py`：动画工具类
+- `docs/vscode_ui_design.md`：UI设计文档
+
+**修改文件**
+- `src/theme/__init__.py`：导出VSCode主题函数
+- `src/main.py`：集成VSCode主题和UI增强
+- `src/components/editor.py`：更新语法高亮配色
+- `README.md`：更新UI特性描述
+
+#### 设计特点
+
+- **保持兼容**：继续使用PyQt5 + PyQt-Fluent-Widgets框架
+- **精确还原**：完全还原VSCode的配色和视觉效果
+- **丝滑动画**：200ms标准动画时长，使用缓动曲线
+- **模块化**：每个组件独立，易于维护和扩展
+- **中文友好**：完整的中文注释和文档
+
+#### 使用说明
+
+新UI会在应用启动时自动应用。用户可以：
+- 使用活动栏快速切换不同功能
+- 通过状态栏查看和修改各种状态
+- 享受流畅的动画过渡效果
+- 在设置中切换深色/浅色主题
+
+详细的UI使用说明请参阅：[VSCode风格UI设计文档](./docs/vscode_ui_design.md)
+
+---
+
 ## Git功能与系统稳定性优化 - 2025-04-29
 
 
