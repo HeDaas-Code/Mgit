@@ -4,8 +4,7 @@
 import os
 import sys
 from PyQt5.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QSplitter, QMessageBox, 
-                           QStackedWidget, QFileDialog, QMenuBar, QMenu, QAction, QApplication,
-                           QToolButton)
+                           QStackedWidget, QFileDialog, QMenuBar, QMenu, QAction, QApplication)
 from PyQt5.QtCore import Qt, QSize, pyqtSignal, QTimer
 from PyQt5.QtGui import QIcon, QFont, QKeySequence, QColor, QTextCharFormat, QTextCursor
 
