@@ -6,7 +6,7 @@ Document and Git tools for the Writing Copilot agent
 """
 
 import os
-from typing import List, Optional
+from typing import List
 from langchain.tools import Tool
 from src.utils.logger import info, warning, error
 
@@ -40,7 +40,9 @@ def create_document_tools(app) -> List[Tool]:
         """写入文档内容"""
         try:
             # 创建目录（如果不存在）
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            dir_name = os.path.dirname(file_path)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
             
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
@@ -123,8 +125,8 @@ def create_document_tools(app) -> List[Tool]:
         ),
         Tool(
             name="write_document",
-            func=lambda x: write_document(*x.split('|', 1)) if '|' in x else "错误: 需要格式 'file_path|content'",
-            description="将内容写入指定文件。输入格式: 'file_path|content'"
+            func=lambda x: write_document(*x.split('|', 1)) if '|' in x else "错误: 需要格式 'file_path|content'。注意：如果内容包含'|'字符，仅第一个'|'将作为分隔符。",
+            description="将内容写入指定文件。输入格式: 'file_path|content'（第一个'|'作为分隔符）"
         ),
         Tool(
             name="edit_current_document",

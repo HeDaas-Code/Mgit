@@ -38,6 +38,7 @@ class Plugin(PluginBase):
     package_dependencies = [
         "langchain>=0.1.0",
         "langchain-community>=0.0.20",
+        "langchain-openai>=0.0.5",
         "openai>=1.0.0",
         "requests>=2.28.0",
     ]
@@ -53,7 +54,7 @@ class Plugin(PluginBase):
         'api_key': {
             'type': 'string',
             'default': '',
-            'description': 'API密钥',
+            'description': 'API密钥（敏感信息，仅在界面中隐藏显示）',
             'password': True,
             'group': 'API设置'
         },
@@ -233,7 +234,12 @@ class Plugin(PluginBase):
         self.completion_timer.setSingleShot(True)
         self.completion_timer.timeout.connect(self._trigger_inline_completion)
         
-        # 连接编辑器文本变化信号
+        # 连接编辑器文本变化信号，避免重复连接
+        try:
+            self.app.editor.textChanged.disconnect(self._on_text_changed)
+        except TypeError:
+            # 如果之前未连接，则忽略断开错误
+            pass
         self.app.editor.textChanged.connect(self._on_text_changed)
     
     def _on_text_changed(self):
@@ -338,7 +344,8 @@ class Plugin(PluginBase):
             try:
                 self.app.editor.textChanged.disconnect(self._on_text_changed)
             except TypeError:
-                pass
+                # 信号可能已经断开；在清理阶段忽略此错误
+                debug("textChanged signal disconnect raised TypeError; it may have been already disconnected.")
         
         # 清理界面
         if self.copilot_widget:

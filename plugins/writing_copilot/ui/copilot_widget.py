@@ -5,18 +5,17 @@
 Writing Copilot Widget - Main UI for the copilot plugin
 """
 
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                           QPushButton, QTextEdit, QTabWidget, QSplitter,
-                           QListWidget, QListWidgetItem, QMessageBox, QLineEdit,
-                           QTextBrowser, QGroupBox, QScrollArea)
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
+                           QTabWidget,
+                           QListWidget, QListWidgetItem, QMessageBox,
+                           QTextBrowser, QGroupBox)
 from PyQt5.QtCore import Qt, pyqtSignal, QThread
-from PyQt5.QtGui import QFont, QTextCursor
+from PyQt5.QtGui import QTextCursor
 from qfluentwidgets import (PushButton, LineEdit, TextEdit, FluentIcon,
-                          CardWidget, BodyLabel, SubtitleLabel, StrongBodyLabel)
+                          BodyLabel, SubtitleLabel, StrongBodyLabel)
 from src.utils.logger import info, warning, error, debug
 
-import json
-from typing import Optional, Dict, List
+import html as html_module
 
 
 class CompletionWorker(QThread):
@@ -45,7 +44,12 @@ class CompletionWorker(QThread):
             self.completed.emit(completion)
             
         except Exception as e:
-            self.failed.emit(f"生成失败: {str(e)}")
+            # 清理错误消息，避免泄露敏感信息
+            error_msg = str(e)
+            # 移除可能包含API密钥的部分
+            if 'api' in error_msg.lower() and 'key' in error_msg.lower():
+                error_msg = "API认证失败，请检查API密钥配置"
+            self.failed.emit(f"生成失败: {error_msg}")
 
 
 class ChatWorker(QThread):
@@ -85,7 +89,11 @@ class ChatWorker(QThread):
             self.responded.emit(reply)
             
         except Exception as e:
-            self.failed.emit(f"对话失败: {str(e)}")
+            # 清理错误消息，避免泄露敏感信息
+            error_msg = str(e)
+            if 'api' in error_msg.lower() and 'key' in error_msg.lower():
+                error_msg = "API认证失败，请检查API密钥配置"
+            self.failed.emit(f"对话失败: {error_msg}")
 
 
 class AgentWorker(QThread):
@@ -120,8 +128,12 @@ class AgentWorker(QThread):
             self.completed.emit(output, task_info)
             
         except Exception as e:
-            error(f"代理任务执行失败: {str(e)}")
-            self.failed.emit(f"执行失败: {str(e)}")
+            # 清理错误消息，避免泄露敏感信息
+            error_msg = str(e)
+            if 'api' in error_msg.lower() and 'key' in error_msg.lower():
+                error_msg = "API认证失败，请检查API密钥配置"
+            error(f"代理任务执行失败: {error_msg}")
+            self.failed.emit(f"执行失败: {error_msg}")
 
 
 class WritingCopilotWidget(QWidget):
@@ -438,7 +450,7 @@ class WritingCopilotWidget(QWidget):
         full_text = editor.toPlainText()
         before_cursor = full_text[:position]
         
-        cursor.select(cursor.LineUnderCursor)
+        cursor.select(QTextCursor.LineUnderCursor)
         current_line = cursor.selectedText()
         
         self.generate_inline_completion(before_cursor, current_line)
@@ -502,14 +514,20 @@ class WritingCopilotWidget(QWidget):
         self.status_label.setText(f"执行{operation}操作中...")
         
         self.current_worker = CompletionWorker(self.plugin.llm_client, prompt)
-        self.current_worker.completed.connect(
-            lambda result: self._on_edit_completed(result, cursor)
-        )
+        self.current_worker.completed.connect(self._on_edit_completed)
         self.current_worker.failed.connect(self._on_completion_failed)
         self.current_worker.start()
     
-    def _on_edit_completed(self, result, cursor):
+    def _on_edit_completed(self, result):
         """编辑完成"""
+        # 重新获取当前编辑器和光标，避免使用可能已经失效的光标对象
+        editor = getattr(self.app, 'editor', None)
+        if not editor:
+            self.status_label.setText("编辑已应用（无活动编辑器）")
+            self.current_worker = None
+            return
+        
+        cursor = editor.textCursor()
         cursor.insertText(result)
         self.status_label.setText("编辑已应用")
         self.current_worker = None
@@ -581,15 +599,17 @@ class WritingCopilotWidget(QWidget):
     
     def _update_chat_display(self):
         """更新聊天显示"""
-        html = "<div style='font-family: sans-serif;'>"
+        html_str = "<div style='font-family: sans-serif;'>"
         for role, content in self.chat_history:
+            # 转义HTML特殊字符以防止注入
+            escaped_content = html_module.escape(content)
             if role == "user":
-                html += f"<div style='margin: 10px; padding: 10px; background: #E3F2FD; border-radius: 5px;'><strong>您:</strong><br>{content}</div>"
+                html_str += f"<div style='margin: 10px; padding: 10px; background: #E3F2FD; border-radius: 5px;'><strong>您:</strong><br>{escaped_content}</div>"
             else:
-                html += f"<div style='margin: 10px; padding: 10px; background: #F5F5F5; border-radius: 5px;'><strong>助手:</strong><br>{content}</div>"
-        html += "</div>"
+                html_str += f"<div style='margin: 10px; padding: 10px; background: #F5F5F5; border-radius: 5px;'><strong>助手:</strong><br>{escaped_content}</div>"
+        html_str += "</div>"
         
-        self.chat_display.setHtml(html)
+        self.chat_display.setHtml(html_str)
         # 滚动到底部
         scrollbar = self.chat_display.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
@@ -611,6 +631,11 @@ class WritingCopilotWidget(QWidget):
             QMessageBox.warning(self, "错误", "代理执行器未初始化")
             return
         
+        # 检查是否有正在运行的任务
+        if self.current_worker and self.current_worker.isRunning():
+            QMessageBox.warning(self, "警告", "已有任务正在执行中，请等待完成")
+            return
+        
         self.status_label.setText("执行代理任务中...")
         self.agent_log.clear()
         self.agent_log.append(f"开始执行任务: {task}\n")
@@ -625,11 +650,12 @@ class WritingCopilotWidget(QWidget):
         self.agent_log.append(f"\n任务完成!\n\n结果:\n{output}")
         self.status_label.setText("任务已完成")
         
+        # 注意：任务已经执行，审查仅用于审计和确认
         # 如果启用了审查，添加到待审查列表
         if self.plugin.get_setting('enable_task_review', True):
             self.pending_tasks.append(task_info)
             self._update_review_list()
-            self.agent_log.append("\n\n任务已添加到审查队列")
+            self.agent_log.append("\n\n注意：任务已执行，请在审查标签页中确认结果")
         
         self.current_worker = None
     
@@ -677,8 +703,8 @@ class WritingCopilotWidget(QWidget):
             self._update_review_list()
             self.task_details.clear()
             
-            QMessageBox.information(self, "成功", "任务已批准并应用")
-            info(f"任务已批准: {task['task']}")
+            QMessageBox.information(self, "成功", "任务已确认（注意：任务已经执行）")
+            info(f"任务已确认: {task['task']}")
     
     def _reject_task(self):
         """拒绝任务"""
