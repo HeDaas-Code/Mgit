@@ -11,6 +11,32 @@ from langchain.tools import Tool
 from src.utils.logger import info, warning, error
 
 
+def _validate_path(file_path: str) -> tuple:
+    """
+    验证文件路径安全性，防止路径遍历攻击
+    
+    Args:
+        file_path: 要验证的文件路径
+    
+    Returns:
+        (is_valid, error_message_or_resolved_path)
+    """
+    try:
+        # 获取当前工作目录作为基准目录
+        base_dir = os.path.abspath(os.getcwd())
+        
+        # 解析为绝对路径
+        abs_path = os.path.abspath(file_path)
+        
+        # 检查路径是否在允许的目录内
+        if not abs_path.startswith(base_dir + os.sep) and abs_path != base_dir:
+            return False, f"安全错误: 不允许访问工作目录之外的文件 - {file_path}"
+        
+        return True, abs_path
+    except Exception as e:
+        return False, f"路径验证失败: {str(e)}"
+
+
 def create_document_tools(app) -> List[Tool]:
     """创建文档操作工具"""
     
@@ -27,10 +53,17 @@ def create_document_tools(app) -> List[Tool]:
     def read_document(file_path: str) -> str:
         """读取指定文档内容"""
         try:
-            if not os.path.exists(file_path):
+            # 验证路径安全性
+            is_valid, result = _validate_path(file_path)
+            if not is_valid:
+                return result
+            
+            validated_path = result
+            
+            if not os.path.exists(validated_path):
                 return f"错误: 文件不存在 - {file_path}"
             
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(validated_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             return f"文档内容 ({file_path}):\n{content}"
         except Exception as e:
@@ -39,12 +72,19 @@ def create_document_tools(app) -> List[Tool]:
     def write_document(file_path: str, content: str) -> str:
         """写入文档内容"""
         try:
+            # 验证路径安全性
+            is_valid, result = _validate_path(file_path)
+            if not is_valid:
+                return result
+            
+            validated_path = result
+            
             # 创建目录（如果不存在）
-            dir_name = os.path.dirname(file_path)
+            dir_name = os.path.dirname(validated_path)
             if dir_name:
                 os.makedirs(dir_name, exist_ok=True)
             
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(validated_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             
             info(f"文档已写入: {file_path}")
@@ -95,19 +135,45 @@ def create_document_tools(app) -> List[Tool]:
     def list_documents(directory: str = ".") -> str:
         """列出目录中的文档"""
         try:
-            if not os.path.exists(directory):
+            # 验证路径安全性
+            is_valid, result = _validate_path(directory)
+            if not is_valid:
+                return result
+            
+            validated_dir = result
+            
+            if not os.path.exists(validated_dir):
                 return f"错误: 目录不存在 - {directory}"
             
+            # 深度和文件数量限制，防止资源耗尽
+            MAX_DEPTH = 5
+            MAX_FILES = 1000
+            
             files = []
-            for root, dirs, filenames in os.walk(directory):
+            start_depth = validated_dir.rstrip(os.sep).count(os.sep)
+            
+            for root, dirs, filenames in os.walk(validated_dir):
+                current_depth = root.rstrip(os.sep).count(os.sep) - start_depth
+                if current_depth >= MAX_DEPTH:
+                    # 不再向更深层目录递归
+                    dirs[:] = []
+                
                 for filename in filenames:
                     if filename.endswith(('.md', '.txt', '.markdown')):
                         files.append(os.path.join(root, filename))
+                        if len(files) >= MAX_FILES:
+                            warning(f"list_documents: 已达到文件数量上限 {MAX_FILES}，结果已被截断。")
+                            break
+                if len(files) >= MAX_FILES:
+                    break
             
             if not files:
                 return f"目录 {directory} 中没有找到文档"
             
-            return "找到的文档:\n" + "\n".join(files)
+            result = "找到的文档:\n" + "\n".join(files)
+            if len(files) >= MAX_FILES:
+                result += f"\n警告: 已达到文件数量上限 {MAX_FILES}，结果可能不完整。"
+            return result
         except Exception as e:
             return f"列出文档失败: {str(e)}"
     
@@ -278,9 +344,18 @@ def create_git_tools(app) -> List[Tool]:
         ),
         Tool(
             name="get_commit_history",
-            func=lambda x: get_commit_history(int(x) if x.isdigit() else 10),
+            func=lambda x: get_commit_history(_safe_int(x, 10)),
             description="获取提交历史。输入: 要显示的提交数量（可选，默认10）"
         ),
     ]
+    
+    def _safe_int(value: str, default: int = 10) -> int:
+        """安全地将字符串转换为整数"""
+        try:
+            if value and value.strip().isdigit():
+                return int(value.strip())
+            return default
+        except (ValueError, AttributeError):
+            return default
     
     return tools

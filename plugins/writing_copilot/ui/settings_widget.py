@@ -5,11 +5,10 @@
 Settings widget for Writing Copilot plugin
 """
 
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                            QGroupBox, QFormLayout)
-from PyQt5.QtCore import Qt
 from qfluentwidgets import (LineEdit, ComboBox, SwitchButton, SpinBox,
-                          BodyLabel, StrongBodyLabel, PushButton, FluentIcon)
+                          BodyLabel, PushButton, FluentIcon)
 
 
 class CopilotSettingsWidget(QWidget):
@@ -210,13 +209,43 @@ class CopilotSettingsWidget(QWidget):
             QMessageBox.warning(self, "错误", "请先输入API密钥")
             return
         
-        # 临时保存设置并测试
-        self.saveSettings()
-        
-        if self.plugin.llm_client:
-            QMessageBox.information(self, "成功", "API客户端初始化成功！\n您可以开始使用Copilot功能。")
-        else:
-            QMessageBox.warning(self, "失败", "API客户端初始化失败，请检查API密钥和网络连接。")
+        # 使用临时配置测试连接，不保存到插件设置
+        try:
+            from langchain_openai import ChatOpenAI
+            
+            # 获取当前输入的配置
+            api_url = self.api_url_input.text()
+            model_names = [
+                'deepseek-ai/DeepSeek-V2.5',
+                'Qwen/Qwen2.5-7B-Instruct',
+                'THUDM/glm-4-9b-chat',
+                'meta-llama/Meta-Llama-3.1-8B-Instruct',
+            ]
+            model_name = model_names[self.model_combo.currentIndex()]
+            
+            # 创建临时客户端测试
+            test_client = ChatOpenAI(
+                model=model_name,
+                openai_api_key=api_key,
+                openai_api_base=api_url,
+                temperature=0.7,
+                timeout=30
+            )
+            
+            # 测试简单调用
+            from langchain.schema import HumanMessage
+            response = test_client.invoke([HumanMessage(content="测试")])
+            
+            if response:
+                QMessageBox.information(self, "成功", "API连接测试成功！\n您可以点击\"应用设置\"保存配置。")
+            else:
+                QMessageBox.warning(self, "失败", "API连接测试失败，未收到响应。")
+        except Exception as e:
+            error_msg = str(e)
+            # 清理可能包含敏感信息的错误
+            if 'api' in error_msg.lower() and 'key' in error_msg.lower():
+                error_msg = "API认证失败，请检查API密钥是否正确"
+            QMessageBox.warning(self, "失败", f"API连接测试失败：{error_msg}")
     
     def showEvent(self, event):
         """窗口显示时重新加载设置"""

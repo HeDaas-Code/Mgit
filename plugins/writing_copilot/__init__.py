@@ -225,6 +225,7 @@ class Plugin(EditorPlugin):
         delay = self.get_setting('auto_completion_delay', 1000)
         self.completion_timer = QTimer()
         self.completion_timer.setSingleShot(True)
+        self.completion_timer.setInterval(delay)
         self.completion_timer.timeout.connect(self._trigger_inline_completion)
         
         # 连接编辑器文本变化信号，避免重复连接
