@@ -105,14 +105,23 @@ class CopilotSettingsWidget(QWidget):
         hint_label.setWordWrap(True)
         layout.addWidget(hint_label)
         
-        # 添加测试连接按钮
-        test_layout = QHBoxLayout()
+        # 添加按钮行
+        button_layout = QHBoxLayout()
+        
+        # 测试连接按钮
         self.test_button = PushButton("测试API连接")
         self.test_button.setIcon(FluentIcon.SYNC)
         self.test_button.clicked.connect(self.testConnection)
-        test_layout.addWidget(self.test_button)
-        test_layout.addStretch()
-        layout.addLayout(test_layout)
+        button_layout.addWidget(self.test_button)
+        
+        # 应用设置按钮
+        self.apply_button = PushButton("应用设置")
+        self.apply_button.setIcon(FluentIcon.SAVE)
+        self.apply_button.clicked.connect(self.applySettings)
+        button_layout.addWidget(self.apply_button)
+        
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
         
         layout.addStretch()
     
@@ -183,6 +192,15 @@ class CopilotSettingsWidget(QWidget):
         if self.plugin.get_setting('enable_inline_completion'):
             self.plugin._setup_completion_timer()
     
+    def applySettings(self):
+        """应用设置"""
+        from PyQt5.QtWidgets import QMessageBox
+        try:
+            self.saveSettings()
+            QMessageBox.information(self, "成功", "设置已应用！")
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"应用设置时出错: {str(e)}")
+    
     def testConnection(self):
         """测试API连接"""
         from PyQt5.QtWidgets import QMessageBox
@@ -199,3 +217,19 @@ class CopilotSettingsWidget(QWidget):
             QMessageBox.information(self, "成功", "API客户端初始化成功！\n您可以开始使用Copilot功能。")
         else:
             QMessageBox.warning(self, "失败", "API客户端初始化失败，请检查API密钥和网络连接。")
+    
+    def showEvent(self, event):
+        """窗口显示时重新加载设置"""
+        super().showEvent(event)
+        self.loadSettings()
+    
+    def hideEvent(self, event):
+        """窗口隐藏时保存设置"""
+        super().hideEvent(event)
+        # Don't save on hide, only on explicit save or dialog accept
+        
+    def closeEvent(self, event):
+        """窗口关闭时保存设置"""
+        # This will be called when dialog is closed
+        # We save settings when parent dialog is accepted
+        super().closeEvent(event)

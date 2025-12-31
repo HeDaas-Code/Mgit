@@ -7,21 +7,14 @@ Provides inline completion, editing, creation, chat, and agent modes
 Uses SiliconFlow API and Langchain for agent development
 """
 
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                           QPushButton, QTextEdit, QTabWidget, QSplitter,
-                           QListWidget, QListWidgetItem, QMessageBox, QLineEdit,
-                           QComboBox, QCheckBox, QTextBrowser)
-from PyQt5.QtCore import Qt, pyqtSignal, QThread, QTimer
-from PyQt5.QtGui import QFont, QTextCursor, QKeySequence
-from qfluentwidgets import (PushButton, LineEdit, ComboBox, CheckBox, 
-                          FluentIcon, SettingCardGroup, ExpandLayout,
-                          SwitchSettingCard, PushSettingCard)
+from PyQt5.QtCore import QTimer
+from PyQt5.QtGui import QTextCursor
+from qfluentwidgets import FluentIcon
 from src.utils.plugin_base import EditorPlugin
 from src.utils.logger import info, warning, error, debug
 
 import os
-import json
-from typing import Optional, Dict, List, Any
+from typing import Optional
 
 
 class Plugin(EditorPlugin):
