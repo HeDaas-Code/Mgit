@@ -16,7 +16,7 @@ from PyQt5.QtGui import QFont, QTextCursor, QKeySequence
 from qfluentwidgets import (PushButton, LineEdit, ComboBox, CheckBox, 
                           FluentIcon, SettingCardGroup, ExpandLayout,
                           SwitchSettingCard, PushSettingCard)
-from src.utils.plugin_base import PluginBase
+from src.utils.plugin_base import EditorPlugin
 from src.utils.logger import info, warning, error, debug
 
 import os
@@ -24,7 +24,7 @@ import json
 from typing import Optional, Dict, List, Any
 
 
-class Plugin(PluginBase):
+class Plugin(EditorPlugin):
     """Writing Copilot Plugin for MGit"""
     
     # 插件元数据
@@ -287,6 +287,38 @@ class Plugin(PluginBase):
     def get_view_name(self):
         """获取视图名称"""
         return "写作Copilot"
+    
+    def get_settings_widget(self):
+        """获取设置界面"""
+        from .ui.settings_widget import CopilotSettingsWidget
+        return CopilotSettingsWidget(self)
+    
+    def get_context_menu_items(self):
+        """获取编辑器上下文菜单项"""
+        return [
+            {
+                'name': '打开写作Copilot',
+                'icon': FluentIcon.ROBOT,
+                'callback': self._show_copilot_panel
+            },
+            {
+                'name': '补全当前行',
+                'icon': FluentIcon.EDIT,
+                'callback': self._trigger_manual_completion
+            },
+        ]
+    
+    def _show_copilot_panel(self):
+        """显示Copilot面板"""
+        if self.copilot_widget:
+            self.copilot_widget.setVisible(True)
+            self.copilot_widget.raise_()
+            info("写作Copilot面板已打开")
+    
+    def _trigger_manual_completion(self):
+        """手动触发补全"""
+        if self.copilot_widget:
+            self.copilot_widget._manual_trigger_completion()
     
     def get_event_listeners(self):
         """获取事件监听器"""

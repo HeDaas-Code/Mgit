@@ -1,0 +1,201 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""
+Settings widget for Writing Copilot plugin
+"""
+
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+                           QGroupBox, QFormLayout)
+from PyQt5.QtCore import Qt
+from qfluentwidgets import (LineEdit, ComboBox, SwitchButton, SpinBox,
+                          BodyLabel, StrongBodyLabel, PushButton, FluentIcon)
+
+
+class CopilotSettingsWidget(QWidget):
+    """写作Copilot设置界面"""
+    
+    def __init__(self, plugin, parent=None):
+        super().__init__(parent)
+        self.plugin = plugin
+        self.initUI()
+        self.loadSettings()
+    
+    def initUI(self):
+        """初始化UI"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        
+        # API设置组
+        api_group = QGroupBox("API设置")
+        api_layout = QFormLayout(api_group)
+        
+        # API基础URL
+        self.api_url_input = LineEdit()
+        self.api_url_input.setPlaceholderText("https://api.siliconflow.cn/v1")
+        api_layout.addRow("API基础URL:", self.api_url_input)
+        
+        # API密钥
+        self.api_key_input = LineEdit()
+        self.api_key_input.setEchoMode(LineEdit.Password)
+        self.api_key_input.setPlaceholderText("输入您的API密钥")
+        api_layout.addRow("API密钥:", self.api_key_input)
+        
+        # 模型选择
+        self.model_combo = ComboBox()
+        self.model_combo.addItems([
+            'DeepSeek V2.5',
+            'Qwen2.5 7B',
+            'GLM-4 9B',
+            'Llama 3.1 8B',
+        ])
+        self.model_combo.setCurrentIndex(0)
+        api_layout.addRow("模型:", self.model_combo)
+        
+        layout.addWidget(api_group)
+        
+        # 功能设置组
+        feature_group = QGroupBox("功能设置")
+        feature_layout = QFormLayout(feature_group)
+        
+        # 启用行内补全
+        self.enable_completion_switch = SwitchButton()
+        feature_layout.addRow("启用行内补全:", self.enable_completion_switch)
+        
+        # 补全触发方式
+        self.trigger_combo = ComboBox()
+        self.trigger_combo.addItems(['自动触发', '手动触发', '两者都启用'])
+        self.trigger_combo.setCurrentIndex(0)
+        feature_layout.addRow("补全触发方式:", self.trigger_combo)
+        
+        # 自动补全延迟
+        self.delay_spin = SpinBox()
+        self.delay_spin.setRange(500, 5000)
+        self.delay_spin.setSingleStep(100)
+        self.delay_spin.setSuffix(" 毫秒")
+        feature_layout.addRow("自动补全延迟:", self.delay_spin)
+        
+        layout.addWidget(feature_group)
+        
+        # 代理设置组
+        agent_group = QGroupBox("代理设置")
+        agent_layout = QFormLayout(agent_group)
+        
+        # 启用任务审查
+        self.enable_review_switch = SwitchButton()
+        agent_layout.addRow("启用任务审查:", self.enable_review_switch)
+        
+        layout.addWidget(agent_group)
+        
+        # 高级设置组
+        advanced_group = QGroupBox("高级设置")
+        advanced_layout = QFormLayout(advanced_group)
+        
+        # 最大上下文长度
+        self.context_length_spin = SpinBox()
+        self.context_length_spin.setRange(1000, 8000)
+        self.context_length_spin.setSingleStep(500)
+        self.context_length_spin.setSuffix(" 字符")
+        advanced_layout.addRow("最大上下文长度:", self.context_length_spin)
+        
+        layout.addWidget(advanced_group)
+        
+        # 提示信息
+        hint_label = BodyLabel("注意：API密钥仅在界面中隐藏显示，不会加密存储。")
+        hint_label.setWordWrap(True)
+        layout.addWidget(hint_label)
+        
+        # 添加测试连接按钮
+        test_layout = QHBoxLayout()
+        self.test_button = PushButton("测试API连接")
+        self.test_button.setIcon(FluentIcon.SYNC)
+        self.test_button.clicked.connect(self.testConnection)
+        test_layout.addWidget(self.test_button)
+        test_layout.addStretch()
+        layout.addLayout(test_layout)
+        
+        layout.addStretch()
+    
+    def loadSettings(self):
+        """加载设置"""
+        # API设置
+        self.api_url_input.setText(self.plugin.get_setting('api_base_url', 'https://api.siliconflow.cn/v1'))
+        self.api_key_input.setText(self.plugin.get_setting('api_key', ''))
+        
+        # 模型映射
+        model_map = {
+            'deepseek-ai/DeepSeek-V2.5': 0,
+            'Qwen/Qwen2.5-7B-Instruct': 1,
+            'THUDM/glm-4-9b-chat': 2,
+            'meta-llama/Meta-Llama-3.1-8B-Instruct': 3,
+        }
+        model_name = self.plugin.get_setting('model_name', 'deepseek-ai/DeepSeek-V2.5')
+        self.model_combo.setCurrentIndex(model_map.get(model_name, 0))
+        
+        # 功能设置
+        self.enable_completion_switch.setChecked(self.plugin.get_setting('enable_inline_completion', True))
+        
+        trigger_map = {'auto': 0, 'manual': 1, 'both': 2}
+        trigger = self.plugin.get_setting('completion_trigger', 'auto')
+        self.trigger_combo.setCurrentIndex(trigger_map.get(trigger, 0))
+        
+        self.delay_spin.setValue(self.plugin.get_setting('auto_completion_delay', 1000))
+        
+        # 代理设置
+        self.enable_review_switch.setChecked(self.plugin.get_setting('enable_task_review', True))
+        
+        # 高级设置
+        self.context_length_spin.setValue(self.plugin.get_setting('max_context_length', 4000))
+    
+    def saveSettings(self):
+        """保存设置"""
+        # API设置
+        self.plugin.set_setting('api_base_url', self.api_url_input.text())
+        self.plugin.set_setting('api_key', self.api_key_input.text())
+        
+        # 模型映射
+        model_names = [
+            'deepseek-ai/DeepSeek-V2.5',
+            'Qwen/Qwen2.5-7B-Instruct',
+            'THUDM/glm-4-9b-chat',
+            'meta-llama/Meta-Llama-3.1-8B-Instruct',
+        ]
+        self.plugin.set_setting('model_name', model_names[self.model_combo.currentIndex()])
+        
+        # 功能设置
+        self.plugin.set_setting('enable_inline_completion', self.enable_completion_switch.isChecked())
+        
+        trigger_values = ['auto', 'manual', 'both']
+        self.plugin.set_setting('completion_trigger', trigger_values[self.trigger_combo.currentIndex()])
+        
+        self.plugin.set_setting('auto_completion_delay', self.delay_spin.value())
+        
+        # 代理设置
+        self.plugin.set_setting('enable_task_review', self.enable_review_switch.isChecked())
+        
+        # 高级设置
+        self.plugin.set_setting('max_context_length', self.context_length_spin.value())
+        
+        # 重新初始化LLM客户端
+        self.plugin._init_llm_client()
+        
+        # 重新设置补全定时器
+        if self.plugin.get_setting('enable_inline_completion'):
+            self.plugin._setup_completion_timer()
+    
+    def testConnection(self):
+        """测试API连接"""
+        from PyQt5.QtWidgets import QMessageBox
+        
+        api_key = self.api_key_input.text()
+        if not api_key:
+            QMessageBox.warning(self, "错误", "请先输入API密钥")
+            return
+        
+        # 临时保存设置并测试
+        self.saveSettings()
+        
+        if self.plugin.llm_client:
+            QMessageBox.information(self, "成功", "API客户端初始化成功！\n您可以开始使用Copilot功能。")
+        else:
+            QMessageBox.warning(self, "失败", "API客户端初始化失败，请检查API密钥和网络连接。")
