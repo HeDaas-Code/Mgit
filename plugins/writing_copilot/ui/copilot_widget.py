@@ -16,6 +16,7 @@ from qfluentwidgets import (PushButton, LineEdit, TextEdit, FluentIcon,
 from src.utils.logger import info, warning, error, debug
 
 import html as html_module
+import re
 
 
 class CompletionWorker(QThread):
@@ -27,6 +28,29 @@ class CompletionWorker(QThread):
         super().__init__(parent)
         self.llm_client = llm_client
         self.prompt = prompt
+    
+    def _sanitize_error(self, error_msg: str) -> str:
+        """清理错误消息中的敏感信息"""
+        # 检查是否包含可能的API密钥或认证信息
+        sensitive_patterns = [
+            r'api[_-]?key',
+            r'auth',
+            r'token',
+            r'secret',
+            r'password',
+            r'sk-[a-zA-Z0-9]{20,}',  # OpenAI API key pattern
+        ]
+        
+        lower_msg = error_msg.lower()
+        for pattern in sensitive_patterns:
+            if re.search(pattern, lower_msg):
+                return "认证失败，请检查API密钥和配置"
+        
+        # 如果错误消息过长，截断
+        if len(error_msg) > 200:
+            return error_msg[:200] + "..."
+        
+        return error_msg
     
     def run(self):
         try:
@@ -45,10 +69,7 @@ class CompletionWorker(QThread):
             
         except Exception as e:
             # 清理错误消息，避免泄露敏感信息
-            error_msg = str(e)
-            # 移除可能包含API密钥的部分
-            if 'api' in error_msg.lower() and 'key' in error_msg.lower():
-                error_msg = "API认证失败，请检查API密钥配置"
+            error_msg = self._sanitize_error(str(e))
             self.failed.emit(f"生成失败: {error_msg}")
 
 
@@ -89,10 +110,8 @@ class ChatWorker(QThread):
             self.responded.emit(reply)
             
         except Exception as e:
-            # 清理错误消息，避免泄露敏感信息
-            error_msg = str(e)
-            if 'api' in error_msg.lower() and 'key' in error_msg.lower():
-                error_msg = "API认证失败，请检查API密钥配置"
+            # 使用CompletionWorker的错误清理方法
+            error_msg = CompletionWorker._sanitize_error(None, str(e))
             self.failed.emit(f"对话失败: {error_msg}")
 
 
@@ -128,10 +147,8 @@ class AgentWorker(QThread):
             self.completed.emit(output, task_info)
             
         except Exception as e:
-            # 清理错误消息，避免泄露敏感信息
-            error_msg = str(e)
-            if 'api' in error_msg.lower() and 'key' in error_msg.lower():
-                error_msg = "API认证失败，请检查API密钥配置"
+            # 使用CompletionWorker的错误清理方法
+            error_msg = CompletionWorker._sanitize_error(None, str(e))
             error(f"代理任务执行失败: {error_msg}")
             self.failed.emit(f"执行失败: {error_msg}")
 
@@ -416,6 +433,36 @@ class WritingCopilotWidget(QWidget):
         return widget
     
     # 补全相关方法
+    def _sanitize_prompt_content(self, text: str) -> str:
+        """
+        清理用户内容中可能的提示注入攻击
+        
+        注意：这是基本的启发式防护，不能完全防止所有提示注入攻击。
+        建议用户注意文档内容，避免包含恶意指令。
+        """
+        if not text:
+            return ""
+        
+        # 检测常见的提示注入模式
+        suspicious_patterns = [
+            "ignore previous instructions",
+            "ignore all previous instructions",
+            "disregard earlier instructions",
+            "forget earlier instructions",
+            "follow these instructions instead",
+            "忽略之前的指令",
+            "忽略所有之前的指令",
+            "忽略先前的指示",
+        ]
+        
+        lower_text = text.lower()
+        for pattern in suspicious_patterns:
+            if pattern in lower_text:
+                warning(f"检测到可能的提示注入尝试: {pattern}")
+                # 记录但不修改，让用户知道
+        
+        return text
+    
     def generate_inline_completion(self, context, current_line):
         """生成行内补全"""
         if self.current_worker and self.current_worker.isRunning():
@@ -423,12 +470,16 @@ class WritingCopilotWidget(QWidget):
         
         self.status_label.setText("生成补全中...")
         
+        # 清理内容（基本防护）
+        safe_context = self._sanitize_prompt_content(context[-1000:])
+        safe_line = self._sanitize_prompt_content(current_line)
+        
         prompt = f"""基于以下上下文，继续写作。只输出续写的内容，不要重复已有内容。
 
 上下文:
-{context[-1000:]}
+{safe_context}
 
-当前行: {current_line}
+当前行: {safe_line}
 
 续写:"""
         
