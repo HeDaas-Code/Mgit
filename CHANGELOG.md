@@ -1,5 +1,34 @@
 # 更新日志
 
+## [Unreleased]
+
+### Added - 新增功能
+- **AI Copilot 写作助手**: 集成SiliconFlow大语言模型，为Markdown写作提供智能辅助
+  - **行内补全**: 根据上下文智能生成续写内容，快捷键 `Alt+\`
+  - **编辑模式**: 根据指令优化和修改文本，快捷键 `Ctrl+Shift+E`
+  - **创作模式**: 从提示词生成完整文档，快捷键 `Ctrl+Shift+C`
+  - **对话模式**: 与AI助手自然交流，获取写作建议和灵感
+  - **代理模式**: 自动执行文档任务（读取、编辑、创建、提交），支持审计工作流
+- **任务审计系统**: 代理模式执行的所有修改操作需要经过人工审核
+  - 类似GitHub分支提交的审查流程
+  - 批准/拒绝机制，确保AI操作的安全性
+  - 任务历史记录和审计意见保存
+- **Copilot设置对话框**: 配置API密钥和模型选择
+- **Copilot面板**: 统一的UI界面管理所有Copilot功能
+- **多模型支持**: 支持Qwen系列、DeepSeek等多个大语言模型
+- **详细文档**: 新增[Copilot使用指南](./docs/copilot_guide.md)
+
+### Technical Details - 技术细节
+- 实现 `SiliconFlowClient` API客户端
+- 实现 `CopilotManager` 核心管理器
+- 实现 `AgentMode` 代理模式和任务系统
+- 创建 `CopilotPanel` UI组件
+- 集成到主窗口，添加菜单项和快捷键
+- 配置管理集成，安全存储API密钥
+
+## [Previous versions]
+
+
 ## VSCode风格UI重构 - 2025-12-29
 
 ### 重大更新
