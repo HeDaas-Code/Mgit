@@ -56,10 +56,10 @@ The recommended way to configure Copilot is through the UI:
 
 ## Security Notes
 
-- API keys are stored in local configuration file
+- API keys are stored in plain text in local configuration file
+- Ensure proper file system permissions to protect configuration files
 - Never commit configuration files with API keys to git
 - Use environment variables for CI/CD if needed
-- Keys are encrypted in configuration storage
 
 ## Environment Variables (Optional)
 

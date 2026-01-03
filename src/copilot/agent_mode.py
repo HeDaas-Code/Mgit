@@ -292,8 +292,31 @@ class AgentMode(QObject):
     def _apply_task_changes(self, task: AgentTask):
         """Apply approved task changes"""
         if task.task_type in ['edit', 'create']:
-            # Changes already in result, application should handle
-            pass
+            # Write the edited/created content to file system
+            if not task.result or not isinstance(task.result, dict):
+                warning(f"No valid result to apply for task {task.task_id}")
+                return
+                
+            file_path = task.result.get('file_path')
+            content = task.result.get('edited_content') or task.result.get('content')
+            
+            if not file_path or content is None:
+                warning(f"Incomplete task result for {task.task_id}: path={file_path}, has_content={content is not None}")
+                return
+                
+            try:
+                # Create directory if needed
+                directory = os.path.dirname(file_path)
+                if directory:
+                    os.makedirs(directory, exist_ok=True)
+                
+                # Write content to file
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                    
+                info(f"Applied changes to {file_path} for task {task.task_id}")
+            except Exception as e:
+                error(f"Failed to apply changes for task {task.task_id}: {str(e)}")
         elif task.task_type == 'commit':
             # Commit was already made during execution
             pass

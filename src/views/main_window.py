@@ -1317,40 +1317,46 @@ class MainWindow(QMainWindow):
         
         if not is_visible:
             info("Copilot面板已显示")
-            # 连接copilot信号
-            self._connect_copilot_signals()
+            # 连接copilot信号 (with lock to prevent race condition)
+            if not hasattr(self, '_copilot_signals_lock'):
+                self._copilot_signals_lock = False
+            if not self._copilot_signals_lock:
+                self._copilot_signals_lock = True
+                self._connect_copilot_signals()
         else:
             info("Copilot面板已隐藏")
             
     def _connect_copilot_signals(self):
         """连接Copilot面板信号"""
-        if not hasattr(self, '_copilot_signals_connected'):
-            self.copilotPanel.completion_requested.connect(
-                lambda before, after: self.copilotManager.get_inline_completion(
-                    before, after, self._on_completion_ready
-                )
-            )
-            self.copilotPanel.edit_requested.connect(
-                lambda text, instruction: self.copilotManager.edit_text(
-                    text, instruction, self._on_edit_ready
-                )
-            )
-            self.copilotPanel.create_requested.connect(
-                lambda prompt, content_type: self.copilotManager.create_content(
-                    prompt, content_type, self._on_content_created
-                )
-            )
-            self.copilotPanel.chat_requested.connect(self._on_chat_requested)
+        if hasattr(self, '_copilot_signals_connected') and self._copilot_signals_connected:
+            return  # Already connected
             
-            # Connect copilot manager signals
-            self.copilotManager.completion_ready.connect(self._on_completion_ready)
-            self.copilotManager.chat_response.connect(self._on_chat_response)
-            self.copilotManager.status_changed.connect(
-                lambda status: self.copilotPanel.update_status(status)
+        self.copilotPanel.completion_requested.connect(
+            lambda before, after: self.copilotManager.get_inline_completion(
+                before, after, self._on_completion_ready
             )
-            self.copilotManager.error_occurred.connect(self._on_copilot_error)
-            
-            self._copilot_signals_connected = True
+        )
+        self.copilotPanel.edit_requested.connect(
+            lambda text, instruction: self.copilotManager.edit_text(
+                text, instruction, self._on_edit_ready
+            )
+        )
+        self.copilotPanel.create_requested.connect(
+            lambda prompt, content_type: self.copilotManager.create_content(
+                prompt, content_type, self._on_content_created
+            )
+        )
+        self.copilotPanel.chat_requested.connect(self._on_chat_requested)
+        
+        # Connect copilot manager signals
+        self.copilotManager.completion_ready.connect(self._on_completion_ready)
+        self.copilotManager.chat_response.connect(self._on_chat_response)
+        self.copilotManager.status_changed.connect(
+            lambda status: self.copilotPanel.update_status(status)
+        )
+        self.copilotManager.error_occurred.connect(self._on_copilot_error)
+        
+        self._copilot_signals_connected = True
             
     def requestInlineCompletion(self):
         """请求行内补全"""
@@ -1369,15 +1375,18 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'editor'):
             return
             
+        # Import constants from copilot_manager
+        from src.copilot.copilot_manager import MAX_CONTEXT_BEFORE, MAX_CONTEXT_AFTER
+        
         # 获取当前光标位置的上下文
         cursor = self.editor.editor.textCursor()
         text_before = self.editor.editor.toPlainText()[:cursor.position()]
         text_after = self.editor.editor.toPlainText()[cursor.position():]
         
-        # 请求补全
+        # 请求补全 - use constants for context window
         self.copilotManager.get_inline_completion(
-            text_before[-500:],  # 最多500字符上文
-            text_after[:100],    # 最多100字符下文
+            text_before[-MAX_CONTEXT_BEFORE:] if len(text_before) > MAX_CONTEXT_BEFORE else text_before,
+            text_after[:MAX_CONTEXT_AFTER] if len(text_after) > MAX_CONTEXT_AFTER else text_after,
             self._on_completion_ready
         )
         

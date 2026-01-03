@@ -49,13 +49,18 @@ class SiliconFlowClient:
         
         Args:
             messages: List of message dicts with 'role' and 'content'
-            temperature: Sampling temperature (0-1)
+            temperature: Sampling temperature (0-2)
             max_tokens: Maximum tokens to generate
             stream: Whether to stream the response
             
         Returns:
             Response dict from API
         """
+        # Validate temperature
+        if not 0 <= temperature <= 2:
+            warning(f"Temperature {temperature} out of range [0, 2], clamping")
+            temperature = max(0, min(2, temperature))
+            
         url = f"{self.BASE_URL}/chat/completions"
         data = {
             'model': self.model,
@@ -139,7 +144,21 @@ class SiliconFlowClient:
         response = self.chat_completion(messages, temperature, max_tokens)
         
         if 'choices' in response and len(response['choices']) > 0:
-            return response['choices'][0]['message']['content']
+            content = response['choices'][0]['message']['content']
+            
+            # Apply stop sequences if provided
+            if stop:
+                first_stop_index = None
+                for s in stop:
+                    if not s:
+                        continue
+                    idx = content.find(s)
+                    if idx != -1 and (first_stop_index is None or idx < first_stop_index):
+                        first_stop_index = idx
+                if first_stop_index is not None:
+                    content = content[:first_stop_index]
+                    
+            return content
         return ""
         
     def get_embedding(self, text: str) -> List[float]:

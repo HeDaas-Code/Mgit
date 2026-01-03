@@ -7,13 +7,12 @@ Copilot Panel - UI for copilot features
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                            QTextEdit, QLineEdit, QPushButton, QComboBox,
-                           QGroupBox, QListWidget, QListWidgetItem, QSplitter,
-                           QTabWidget, QFrame, QMessageBox, QDialog)
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer
-from PyQt5.QtGui import QFont, QColor, QTextCursor
+                           QListWidget, QListWidgetItem,
+                           QTabWidget, QMessageBox, QDialog)
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QTextCursor
 from qfluentwidgets import (PushButton, LineEdit, ComboBox, TextEdit, 
-                           CardWidget, SubtitleLabel, BodyLabel, 
-                           FluentIcon, IconWidget)
+                           SubtitleLabel, BodyLabel)
 from src.utils.logger import info, warning, error
 from src.copilot.agent_mode import AgentTask
 from datetime import datetime
@@ -327,8 +326,25 @@ class CopilotPanel(QWidget):
         dialog = TaskAuditDialog(task_id, self)
         if dialog.exec_():
             approved, comment = dialog.get_result()
-            # Signal parent to handle audit
-            self.parent().audit_task(task_id, approved, comment)
+            # Signal parent to handle audit with error handling
+            parent = self.parent()
+            if parent is None or not hasattr(parent, "audit_task") or not callable(getattr(parent, "audit_task")):
+                warning(f"CopilotPanel parent has no 'audit_task' method; cannot audit task {task_id}")
+                QMessageBox.warning(
+                    self,
+                    "审计失败",
+                    "无法处理审计请求：未找到上级处理器。"
+                )
+                return
+            try:
+                parent.audit_task(task_id, approved, comment)
+            except Exception as e:
+                error(f"Error while auditing task {task_id}: {e}")
+                QMessageBox.critical(
+                    self,
+                    "审计错误",
+                    "处理审计请求时发生错误，请查看日志。"
+                )
 
 
 class TaskAuditDialog(QDialog):
@@ -377,14 +393,22 @@ class TaskAuditDialog(QDialog):
         
     def _on_approve(self):
         """Handle approve"""
+        comment_text = self.comment_edit.toPlainText().strip()
+        if not comment_text:
+            QMessageBox.warning(self, "输入必需", "请填写审计意见后再继续。")
+            return
         self.approved = True
-        self.comment = self.comment_edit.toPlainText()
+        self.comment = comment_text
         self.accept()
         
     def _on_reject(self):
         """Handle reject"""
+        comment_text = self.comment_edit.toPlainText().strip()
+        if not comment_text:
+            QMessageBox.warning(self, "输入必需", "请填写审计意见后再继续。")
+            return
         self.approved = False
-        self.comment = self.comment_edit.toPlainText()
+        self.comment = comment_text
         self.accept()
         
     def get_result(self):

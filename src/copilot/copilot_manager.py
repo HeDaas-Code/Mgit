@@ -6,10 +6,18 @@ Copilot Manager - Central manager for all copilot features
 """
 
 from typing import Dict, List, Optional, Callable
-from PyQt5.QtCore import QObject, pyqtSignal, QThread
+from PyQt5.QtCore import QObject, pyqtSignal, QThread, Qt
 from .siliconflow_client import SiliconFlowClient
 from src.utils.logger import info, warning, error
 from src.utils.config_manager import ConfigManager
+
+# Configuration constants
+MAX_TOKENS_COMPLETION = 500
+MAX_TOKENS_EDIT = 2048
+MAX_TOKENS_CREATION = 4096
+MAX_TOKENS_CHAT = 2048
+MAX_CONTEXT_BEFORE = 500  # Characters of context before cursor
+MAX_CONTEXT_AFTER = 100   # Characters of context after cursor
 
 class CopilotManager(QObject):
     """
@@ -29,6 +37,7 @@ class CopilotManager(QObject):
         self.client = None
         self.enabled = False
         self.current_mode = 'none'  # none, inline, edit, creation, conversation, agent
+        self.current_threads = []  # Store active threads
         
         # Load configuration
         self._load_config()
@@ -112,9 +121,13 @@ class CopilotManager(QObject):
         thread.completion_ready.connect(self._on_completion_ready)
         thread.error_occurred.connect(self._on_error)
         
+        # Store thread reference and connect callback if provided
+        self.current_threads.append(thread)
         if callback:
-            thread.completion_ready.connect(callback)
+            # Use a one-shot connection
+            thread.completion_ready.connect(callback, Qt.SingleShotConnection)
             
+        thread.finished.connect(lambda: self._cleanup_thread(thread))
         thread.start()
         
     def edit_text(
@@ -239,6 +252,11 @@ class CopilotManager(QObject):
         self.status_changed.emit("Error occurred")
         self.current_mode = 'none'
         error(f"Copilot error: {error_msg}")
+        
+    def _cleanup_thread(self, thread: QThread):
+        """Remove finished thread from active threads list"""
+        if thread in self.current_threads:
+            self.current_threads.remove(thread)
 
 
 class CompletionThread(QThread):
@@ -267,7 +285,7 @@ class CompletionThread(QThread):
 请生成自然的补全内容（只返回补全内容，不要包含任何解释）："""
 
             messages = [{'role': 'user', 'content': prompt}]
-            response = self.client.chat_completion(messages, temperature=0.7, max_tokens=500)
+            response = self.client.chat_completion(messages, temperature=0.7, max_tokens=MAX_TOKENS_COMPLETION)
             
             if 'choices' in response and len(response['choices']) > 0:
                 completion = response['choices'][0]['message']['content'].strip()
@@ -303,7 +321,7 @@ class EditThread(QThread):
 请返回编辑后的文本（只返回编辑后的文本，不要包含任何解释）："""
 
             messages = [{'role': 'user', 'content': prompt}]
-            response = self.client.chat_completion(messages, temperature=0.5, max_tokens=2048)
+            response = self.client.chat_completion(messages, temperature=0.5, max_tokens=MAX_TOKENS_EDIT)
             
             if 'choices' in response and len(response['choices']) > 0:
                 edited = response['choices'][0]['message']['content'].strip()
@@ -336,7 +354,7 @@ class CreationThread(QThread):
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': self.prompt}
             ]
-            response = self.client.chat_completion(messages, temperature=0.8, max_tokens=4096)
+            response = self.client.chat_completion(messages, temperature=0.8, max_tokens=MAX_TOKENS_CREATION)
             
             if 'choices' in response and len(response['choices']) > 0:
                 content = response['choices'][0]['message']['content'].strip()
@@ -365,7 +383,7 @@ class ChatThread(QThread):
             messages = self.history.copy()
             messages.append({'role': 'user', 'content': self.message})
             
-            response = self.client.chat_completion(messages, temperature=0.7, max_tokens=2048)
+            response = self.client.chat_completion(messages, temperature=0.7, max_tokens=MAX_TOKENS_CHAT)
             
             if 'choices' in response and len(response['choices']) > 0:
                 reply = response['choices'][0]['message']['content'].strip()
