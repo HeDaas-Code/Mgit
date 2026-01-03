@@ -438,7 +438,7 @@ class CopilotSettingsDialog(QDialog):
         self.api_key_edit.setPlaceholderText("输入API密钥...")
         self.api_key_edit.setEchoMode(QLineEdit.Password)
         
-        current_key = self.config_manager.get('copilot.api_key', '')
+        current_key = self.config_manager.get_plugin_setting('copilot', 'api_key', '')
         if current_key:
             self.api_key_edit.setText(current_key)
             
@@ -455,7 +455,7 @@ class CopilotSettingsDialog(QDialog):
             "meta-llama/Meta-Llama-3.1-8B-Instruct"
         ])
         
-        current_model = self.config_manager.get('copilot.model', 'Qwen/Qwen2.5-7B-Instruct')
+        current_model = self.config_manager.get_plugin_setting('copilot', 'model', 'Qwen/Qwen2.5-7B-Instruct')
         index = self.model_combo.findText(current_model)
         if index >= 0:
             self.model_combo.setCurrentIndex(index)
@@ -466,7 +466,7 @@ class CopilotSettingsDialog(QDialog):
         from PyQt5.QtWidgets import QCheckBox
         self.enable_checkbox = QCheckBox("启用 Copilot")
         self.enable_checkbox.setChecked(
-            self.config_manager.get('copilot.enabled', False)
+            self.config_manager.get_plugin_setting('copilot', 'enabled', False)
         )
         layout.addWidget(self.enable_checkbox)
         
@@ -513,9 +513,9 @@ class CopilotSettingsDialog(QDialog):
             QMessageBox.warning(self, "输入错误", "请输入API密钥")
             return
             
-        self.config_manager.set('copilot.api_key', api_key)
-        self.config_manager.set('copilot.model', model)
-        self.config_manager.set('copilot.enabled', enabled)
+        self.config_manager.set_plugin_setting('copilot', 'api_key', api_key)
+        self.config_manager.set_plugin_setting('copilot', 'model', model)
+        self.config_manager.set_plugin_setting('copilot', 'enabled', enabled)
         
         QMessageBox.information(self, "成功", "设置已保存")
         self.accept()

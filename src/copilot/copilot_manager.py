@@ -45,9 +45,9 @@ class CopilotManager(QObject):
     def _load_config(self):
         """Load copilot configuration"""
         try:
-            api_key = self.config_manager.get('copilot.api_key', '')
-            model = self.config_manager.get('copilot.model', SiliconFlowClient.DEFAULT_MODELS['chat'])
-            self.enabled = self.config_manager.get('copilot.enabled', False)
+            api_key = self.config_manager.get_plugin_setting('copilot', 'api_key', '')
+            model = self.config_manager.get_plugin_setting('copilot', 'model', SiliconFlowClient.DEFAULT_MODELS['chat'])
+            self.enabled = self.config_manager.get_plugin_setting('copilot', 'enabled', False)
             
             if api_key:
                 self.client = SiliconFlowClient(api_key, model)
@@ -70,15 +70,15 @@ class CopilotManager(QObject):
             api_key: SiliconFlow API key
             model: Optional model name
         """
-        self.config_manager.set('copilot.api_key', api_key)
+        self.config_manager.set_plugin_setting('copilot', 'api_key', api_key)
         if model:
-            self.config_manager.set('copilot.model', model)
+            self.config_manager.set_plugin_setting('copilot', 'model', model)
         else:
-            model = self.config_manager.get('copilot.model', SiliconFlowClient.DEFAULT_MODELS['chat'])
+            model = self.config_manager.get_plugin_setting('copilot', 'model', SiliconFlowClient.DEFAULT_MODELS['chat'])
             
         self.client = SiliconFlowClient(api_key, model)
         self.enabled = True
-        self.config_manager.set('copilot.enabled', True)
+        self.config_manager.set_plugin_setting('copilot', 'enabled', True)
         info("Copilot API key updated")
         
     def is_enabled(self) -> bool:
@@ -88,7 +88,7 @@ class CopilotManager(QObject):
     def set_enabled(self, enabled: bool):
         """Enable or disable copilot"""
         self.enabled = enabled
-        self.config_manager.set('copilot.enabled', enabled)
+        self.config_manager.set_plugin_setting('copilot', 'enabled', enabled)
         info(f"Copilot {'enabled' if enabled else 'disabled'}")
         
     def get_inline_completion(
