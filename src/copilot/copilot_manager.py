@@ -8,7 +8,7 @@ Copilot Manager - Central manager for all copilot features
 from typing import Dict, List, Optional, Callable
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, Qt
 from .siliconflow_client import SiliconFlowClient
-from src.utils.logger import info, warning, error
+from src.utils.logger import info, warning, error, debug, LogCategory
 from src.utils.config_manager import ConfigManager
 
 # Configuration constants
@@ -51,16 +51,16 @@ class CopilotManager(QObject):
             
             if api_key:
                 self.client = SiliconFlowClient(api_key, model)
-                info("Copilot client initialized")
+                info("Copilot client initialized", category=LogCategory.API)
             else:
-                warning("Copilot API key not configured")
+                warning("Copilot API key not configured", category=LogCategory.CONFIG)
         except Exception as e:
-            error(f"Failed to load copilot config: {str(e)}")
+            error(f"Failed to load copilot config: {str(e)}", category=LogCategory.CONFIG)
             
     def reload_config(self):
         """Public method to reload copilot configuration"""
         self._load_config()
-        info("Copilot configuration reloaded")
+        info("Copilot configuration reloaded", category=LogCategory.CONFIG)
             
     def set_api_key(self, api_key: str, model: str = None):
         """
@@ -79,7 +79,7 @@ class CopilotManager(QObject):
         self.client = SiliconFlowClient(api_key, model)
         self.enabled = True
         self.config_manager.set_plugin_setting('copilot', 'enabled', True)
-        info("Copilot API key updated")
+        info("Copilot API key updated", category=LogCategory.CONFIG)
         
     def is_enabled(self) -> bool:
         """Check if copilot is enabled"""
@@ -89,7 +89,7 @@ class CopilotManager(QObject):
         """Enable or disable copilot"""
         self.enabled = enabled
         self.config_manager.set_plugin_setting('copilot', 'enabled', enabled)
-        info(f"Copilot {'enabled' if enabled else 'disabled'}")
+        info(f"Copilot {'enabled' if enabled else 'disabled'}", category=LogCategory.CONFIG)
         
     def get_inline_completion(
         self, 
@@ -106,11 +106,12 @@ class CopilotManager(QObject):
             callback: Optional callback function for completion
         """
         if not self.is_enabled():
-            warning("Copilot is not enabled")
+            warning("Copilot is not enabled", category=LogCategory.API)
             return
             
         self.current_mode = 'inline'
         self.status_changed.emit("Generating completion...")
+        debug("Starting inline completion request", category=LogCategory.API)
         
         # Create completion thread
         thread = CompletionThread(
@@ -228,6 +229,7 @@ class CopilotManager(QObject):
         self.completion_ready.emit(completion)
         self.status_changed.emit("Completion ready")
         self.current_mode = 'none'
+        info(f"Completion ready, length: {len(completion)}", category=LogCategory.API)
         
     def _on_edit_ready(self, edited_text: str):
         """Handle edit ready"""
@@ -251,7 +253,7 @@ class CopilotManager(QObject):
         self.error_occurred.emit(error_msg)
         self.status_changed.emit("Error occurred")
         self.current_mode = 'none'
-        error(f"Copilot error: {error_msg}")
+        error(f"Copilot error: {error_msg}", category=LogCategory.API)
         
     def _cleanup_thread(self, thread: QThread):
         """Remove finished thread from active threads list"""

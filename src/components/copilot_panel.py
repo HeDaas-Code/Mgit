@@ -13,7 +13,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 from qfluentwidgets import (PushButton, LineEdit, ComboBox, TextEdit, 
                            SubtitleLabel, BodyLabel)
-from src.utils.logger import info, warning, error
+from src.utils.logger import info, warning, error, debug, LogCategory
 from src.copilot.agent_mode import AgentTask
 from datetime import datetime
 
@@ -329,7 +329,7 @@ class CopilotPanel(QWidget):
             # Signal parent to handle audit with error handling
             parent = self.parent()
             if parent is None or not hasattr(parent, "audit_task") or not callable(getattr(parent, "audit_task")):
-                warning(f"CopilotPanel parent has no 'audit_task' method; cannot audit task {task_id}")
+                warning(f"CopilotPanel parent has no 'audit_task' method; cannot audit task {task_id}", category=LogCategory.UI)
                 QMessageBox.warning(
                     self,
                     "审计失败",
@@ -339,7 +339,7 @@ class CopilotPanel(QWidget):
             try:
                 parent.audit_task(task_id, approved, comment)
             except Exception as e:
-                error(f"Error while auditing task {task_id}: {e}")
+                error(f"Error while auditing task {task_id}: {e}", category=LogCategory.ERROR)
                 QMessageBox.critical(
                     self,
                     "审计错误",

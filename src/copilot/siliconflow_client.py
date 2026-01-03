@@ -8,7 +8,7 @@ SiliconFlow API Client for MGit Copilot
 import requests
 import json
 from typing import List, Dict, Optional, Generator
-from src.utils.logger import info, warning, error
+from src.utils.logger import info, warning, error, debug, LogCategory
 
 class SiliconFlowClient:
     """Client for SiliconFlow API"""
@@ -36,6 +36,7 @@ class SiliconFlowClient:
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json'
         }
+        info(f"SiliconFlow client initialized with model: {self.model}", category=LogCategory.API)
         
     def chat_completion(
         self, 
@@ -58,7 +59,7 @@ class SiliconFlowClient:
         """
         # Validate temperature
         if not 0 <= temperature <= 2:
-            warning(f"Temperature {temperature} out of range [0, 2], clamping")
+            warning(f"Temperature {temperature} out of range [0, 2], clamping", category=LogCategory.API)
             temperature = max(0, min(2, temperature))
             
         url = f"{self.BASE_URL}/chat/completions"
@@ -70,15 +71,23 @@ class SiliconFlowClient:
             'stream': stream
         }
         
+        debug(f"Sending API request to {url} with {len(messages)} messages", category=LogCategory.API)
+        
         try:
             if stream:
                 return self._stream_chat_completion(url, data)
             else:
-                response = requests.post(url, headers=self.headers, json=data, timeout=60)
+                # Use shorter timeout to prevent UI freeze
+                response = requests.post(url, headers=self.headers, json=data, timeout=30)
                 response.raise_for_status()
-                return response.json()
+                result = response.json()
+                info(f"API request successful, response size: {len(str(result))} chars", category=LogCategory.API)
+                return result
+        except requests.exceptions.Timeout as e:
+            error(f"SiliconFlow API timeout after 30s: {str(e)}", category=LogCategory.API)
+            raise
         except requests.exceptions.RequestException as e:
-            error(f"SiliconFlow API error: {str(e)}")
+            error(f"SiliconFlow API error: {str(e)}", category=LogCategory.API)
             raise
             
     def _stream_chat_completion(self, url: str, data: Dict) -> Generator:
@@ -92,13 +101,14 @@ class SiliconFlowClient:
         Yields:
             Chunks of response text
         """
+        debug("Starting streaming API request", category=LogCategory.API)
         try:
             response = requests.post(
                 url, 
                 headers=self.headers, 
                 json=data, 
                 stream=True,
-                timeout=60
+                timeout=30
             )
             response.raise_for_status()
             
@@ -108,6 +118,7 @@ class SiliconFlowClient:
                     if line.startswith('data: '):
                         data_str = line[6:]
                         if data_str.strip() == '[DONE]':
+                            info("Streaming completed", category=LogCategory.API)
                             break
                         try:
                             chunk = json.loads(data_str)
@@ -117,8 +128,11 @@ class SiliconFlowClient:
                                     yield delta['content']
                         except json.JSONDecodeError:
                             continue
+        except requests.exceptions.Timeout as e:
+            error(f"SiliconFlow streaming timeout after 30s: {str(e)}", category=LogCategory.API)
+            raise
         except requests.exceptions.RequestException as e:
-            error(f"SiliconFlow streaming error: {str(e)}")
+            error(f"SiliconFlow streaming error: {str(e)}", category=LogCategory.API)
             raise
             
     def text_completion(
@@ -177,16 +191,23 @@ class SiliconFlowClient:
             'input': text
         }
         
+        debug(f"Requesting embedding for text length: {len(text)}", category=LogCategory.API)
+        
         try:
-            response = requests.post(url, headers=self.headers, json=data, timeout=30)
+            response = requests.post(url, headers=self.headers, json=data, timeout=20)
             response.raise_for_status()
             result = response.json()
             
             if 'data' in result and len(result['data']) > 0:
-                return result['data'][0]['embedding']
+                embedding = result['data'][0]['embedding']
+                info(f"Embedding received, dimension: {len(embedding)}", category=LogCategory.API)
+                return embedding
             return []
+        except requests.exceptions.Timeout as e:
+            error(f"SiliconFlow embedding timeout after 20s: {str(e)}", category=LogCategory.API)
+            raise
         except requests.exceptions.RequestException as e:
-            error(f"SiliconFlow embedding error: {str(e)}")
+            error(f"SiliconFlow embedding error: {str(e)}", category=LogCategory.API)
             raise
             
     def test_connection(self) -> bool:
@@ -196,10 +217,12 @@ class SiliconFlowClient:
         Returns:
             True if connection successful, False otherwise
         """
+        debug("Testing API connection", category=LogCategory.API)
         try:
             messages = [{'role': 'user', 'content': 'Hello'}]
             self.chat_completion(messages, max_tokens=10)
+            info("API connection test successful", category=LogCategory.API)
             return True
         except Exception as e:
-            error(f"Connection test failed: {str(e)}")
+            error(f"Connection test failed: {str(e)}", category=LogCategory.API)
             return False

@@ -11,7 +11,7 @@ from datetime import datetime
 import json
 import os
 from .siliconflow_client import SiliconFlowClient
-from src.utils.logger import info, warning, error
+from src.utils.logger import info, warning, error, debug, LogCategory
 from src.utils.git_manager import GitManager
 
 
@@ -80,7 +80,7 @@ class AgentMode(QObject):
         task_id = f"task_{self.task_counter}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         task = AgentTask(task_id, description, task_type)
         self.tasks[task_id] = task
-        info(f"Created agent task: {task_id}")
+        info(f"Created agent task: {task_id}", category=LogCategory.API)
         return task_id
         
     def execute_task(self, task_id: str, context: Dict = None):
@@ -280,12 +280,12 @@ class AgentMode(QObject):
         
         if approved:
             task.status = 'approved'
-            info(f"Task {task_id} approved")
+            info(f"Task {task_id} approved", category=LogCategory.API)
             # Apply changes if needed
             self._apply_task_changes(task)
         else:
             task.status = 'rejected'
-            warning(f"Task {task_id} rejected: {comment}")
+            warning(f"Task {task_id} rejected: {comment}", category=LogCategory.API)
             
         self.status_changed.emit(f"Task {'approved' if approved else 'rejected'}")
         
@@ -314,9 +314,9 @@ class AgentMode(QObject):
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(content)
                     
-                info(f"Applied changes to {file_path} for task {task.task_id}")
+                info(f"Applied changes to {file_path} for task {task.task_id}", category=LogCategory.IO)
             except Exception as e:
-                error(f"Failed to apply changes for task {task.task_id}: {str(e)}")
+                error(f"Failed to apply changes for task {task.task_id}: {str(e)}", category=LogCategory.ERROR)
         elif task.task_type == 'commit':
             # Commit was already made during execution
             pass
