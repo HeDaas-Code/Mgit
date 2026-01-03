@@ -13,8 +13,8 @@ AI Copilot插件 - 基于SiliconFlow API的AI助手
 - 智能问答对话
 
 安全措施:
-- API密钥加密存储
-- 输入验证和消毒
+- API密钥混淆存储(XOR+Base64编码,非加密)
+- 输入验证和长度限制
 - HTTPS强制
 - 速率限制
 """
@@ -26,8 +26,10 @@ import time
 import base64
 import hashlib
 import threading
-from typing import Optional, Dict, Any, List, Callable
+from typing import Optional, Dict, Any, List, Callable, Tuple
 from functools import wraps
+
+import requests
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
@@ -99,13 +101,24 @@ class SecurityUtils:
     
     @staticmethod
     def sanitize_input(text: str, max_length: int = 100000) -> str:
-        """清理和验证输入文本"""
+        """清理和验证输入文本
+        
+        注意: 此函数主要用于长度限制和基本清理。
+        由于文本将发送到AI API进行处理,不会执行本地代码,
+        因此主要风险是超长输入导致的资源耗尽。
+        
+        Args:
+            text: 输入文本
+            max_length: 最大长度限制
+            
+        Returns:
+            清理后的文本
+        """
         if not text:
             return ""
-        # 限制长度
+        # 限制长度防止资源耗尽
         text = text[:max_length]
-        # 移除潜在的注入字符(保留基本markdown)
-        # 这里只做基本清理,保留大部分内容
+        # 去除首尾空白
         return text.strip()
     
     @staticmethod
@@ -130,10 +143,16 @@ class SiliconFlowAPIError(Exception):
 class RateLimiter:
     """简单的速率限制器"""
     
-    def __init__(self, max_requests: int = 10, time_window: int = 60):
+    def __init__(self, max_requests: int = 30, time_window: int = 60):
+        """初始化速率限制器
+        
+        Args:
+            max_requests: 时间窗口内允许的最大请求数,默认30
+            time_window: 时间窗口(秒),默认60
+        """
         self.max_requests = max_requests
         self.time_window = time_window
-        self.requests = []
+        self.requests: List[float] = []
         self.lock = threading.Lock()
     
     def can_make_request(self) -> bool:
@@ -156,8 +175,8 @@ class SiliconFlowClient:
     # 默认API端点
     DEFAULT_API_URL = "https://api.siliconflow.cn/v1/chat/completions"
     
-    # 可用模型列表
-    AVAILABLE_MODELS = [
+    # 可用模型列表(使用元组使其不可变)
+    AVAILABLE_MODELS: Tuple[str, ...] = (
         "Qwen/Qwen2.5-7B-Instruct",
         "Qwen/Qwen2.5-14B-Instruct",
         "Qwen/Qwen2.5-32B-Instruct",
@@ -167,7 +186,7 @@ class SiliconFlowClient:
         "THUDM/glm-4-9b-chat",
         "01-ai/Yi-1.5-9B-Chat",
         "internlm/internlm2_5-7b-chat",
-    ]
+    )
     
     def __init__(self, api_key: str = "", model: str = "Qwen/Qwen2.5-7B-Instruct"):
         self.api_key = api_key
@@ -218,8 +237,6 @@ class SiliconFlowClient:
         
         self.rate_limiter.record_request()
         
-        import requests
-        
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -258,7 +275,12 @@ class SiliconFlowClient:
                             continue
                         raise SiliconFlowAPIError(f"服务器错误: {response.status_code}")
                     else:
-                        error_msg = response.json().get("error", {}).get("message", response.text)
+                        # 安全地解析错误响应
+                        try:
+                            error_data = response.json()
+                            error_msg = error_data.get("error", {}).get("message", response.text)
+                        except (json.JSONDecodeError, ValueError):
+                            error_msg = response.text
                         raise SiliconFlowAPIError(f"API错误: {error_msg}")
                         
             except requests.exceptions.Timeout:
@@ -279,8 +301,6 @@ class SiliconFlowClient:
         callback: Callable[[str], None]
     ) -> str:
         """处理流式请求"""
-        import requests
-        
         full_content = ""
         
         response = requests.post(
@@ -475,7 +495,7 @@ class ChatWidget(QWidget):
             "你是一个专业的AI写作助手,擅长帮助用户撰写和改进文档、回答问题、提供写作建议。请用中文回复。")
         
         messages = [{"role": "system", "content": system_prompt}]
-        # 保留最近10轮对话
+        # 保留最近10轮对话(每轮包含用户+助手消息,共20条)
         messages.extend(self.conversation_history[-20:])
         
         # 禁用发送按钮
@@ -1171,7 +1191,7 @@ class Plugin(PluginBase):
         'model': {
             'type': 'choice',
             'default': 'Qwen/Qwen2.5-7B-Instruct',
-            'options': SiliconFlowClient.AVAILABLE_MODELS,
+            'options': list(SiliconFlowClient.AVAILABLE_MODELS),
             'description': '使用的AI模型'
         },
         'temperature': {
