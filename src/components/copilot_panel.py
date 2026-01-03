@@ -15,7 +15,7 @@ from qfluentwidgets import (PushButton, LineEdit, ComboBox, TextEdit,
                            CardWidget, SubtitleLabel, BodyLabel, 
                            FluentIcon, IconWidget)
 from src.utils.logger import info, warning, error
-from ..copilot.agent_mode import AgentTask
+from src.copilot.agent_mode import AgentTask
 from datetime import datetime
 
 
@@ -506,7 +506,7 @@ class CopilotSettingsDialog(QDialog):
             return
             
         try:
-            from ..copilot.siliconflow_client import SiliconFlowClient
+            from src.copilot.siliconflow_client import SiliconFlowClient
             client = SiliconFlowClient(api_key, model)
             
             if client.test_connection():

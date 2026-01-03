@@ -512,23 +512,29 @@ class TaskExecutionThread(QThread):
         if not commit_message:
             raise ValueError("Commit message not provided")
             
-        # Add and commit files
-        if files:
-            for file in files:
-                self.git_manager.repo.index.add([file])
-        else:
-            self.git_manager.repo.git.add(A=True)
+        try:
+            # Add and commit files
+            if files:
+                for file in files:
+                    if not os.path.exists(file):
+                        raise FileNotFoundError(f"File not found: {file}")
+                    self.git_manager.repo.index.add([file])
+            else:
+                self.git_manager.repo.git.add(A=True)
+                
+            commit = self.git_manager.repo.index.commit(commit_message)
             
-        commit = self.git_manager.repo.index.commit(commit_message)
-        
-        self.task.changes.append({
-            'action': 'commit',
-            'message': commit_message,
-            'sha': commit.hexsha,
-            'files': files or 'all'
-        })
-        
-        return {
-            'commit_sha': commit.hexsha,
-            'message': commit_message
-        }
+            self.task.changes.append({
+                'action': 'commit',
+                'message': commit_message,
+                'sha': commit.hexsha,
+                'files': files or 'all'
+            })
+            
+            return {
+                'commit_sha': commit.hexsha,
+                'message': commit_message
+            }
+        except Exception as e:
+            error(f"Failed to execute commit: {str(e)}")
+            raise RuntimeError(f"Commit operation failed: {str(e)}")

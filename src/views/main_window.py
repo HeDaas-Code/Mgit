@@ -1437,7 +1437,7 @@ class MainWindow(QMainWindow):
         dialog = CopilotSettingsDialog(self.configManager, self)
         if dialog.exec_():
             # 重新加载copilot配置
-            self.copilotManager._load_config()
+            self.copilotManager.reload_config()
             
             # 初始化agent mode if git manager available
             if self.gitManager and self.copilotManager.client:

@@ -48,6 +48,11 @@ class CopilotManager(QObject):
         except Exception as e:
             error(f"Failed to load copilot config: {str(e)}")
             
+    def reload_config(self):
+        """Public method to reload copilot configuration"""
+        self._load_config()
+        info("Copilot configuration reloaded")
+            
     def set_api_key(self, api_key: str, model: str = None):
         """
         Set or update API key
