@@ -79,7 +79,9 @@ class AgentMode(QObject):
             Task ID
         """
         self.task_counter += 1
-        task_id = f"task_{self.task_counter}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # Use UUID for guaranteed uniqueness even with rapid task creation
+        import uuid
+        task_id = f"task_{uuid.uuid4().hex[:8]}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         task = AgentTask(task_id, description, task_type)
         self.tasks[task_id] = task
         info(f"Created agent task: {task_id}", category=LogCategory.API)
@@ -392,12 +394,15 @@ class AgentMode(QObject):
         self._stop_requested = True
         info("Requesting stop for all active threads", category=LogCategory.API)
         
-        # Wait briefly for threads to finish
+        # Wait for threads to finish gracefully (allow more time for long operations)
         for thread in self.active_threads[:]:
             if thread.isRunning():
-                thread.wait(1000)  # Wait up to 1 second
+                thread.wait(10000)  # Wait up to 10 seconds for API calls to complete
                 if thread.isRunning():
-                    warning(f"Thread still running after stop request", category=LogCategory.API)
+                    warning(
+                        f"Thread {id(thread)} still running after stop request and 10s timeout",
+                        category=LogCategory.API
+                    )
         
     def export_task_history(self, file_path: str):
         """Export task history to file"""

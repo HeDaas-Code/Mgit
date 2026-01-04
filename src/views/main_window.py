@@ -21,7 +21,7 @@ from src.components.status_bar import StatusBar
 from src.utils.git_manager import GitManager
 from src.utils.config_manager import ConfigManager
 from src.components.log_dialog import LogDialog
-from src.utils.logger import info, warning, error, critical, show_error_message, debug, LogCategory
+from src.utils.logger import info, warning, error, show_error_message, debug, LogCategory
 
 # 导入插件管理器
 from src.utils.plugin_manager import init_plugin_manager, get_plugin_manager
@@ -1331,35 +1331,37 @@ class MainWindow(QMainWindow):
             
     def _connect_copilot_signals(self):
         """连接Copilot面板信号"""
-        if hasattr(self, '_copilot_signals_connected') and self._copilot_signals_connected:
-            return  # Already connected
+        # Thread-safe check and set of connection flag
+        with self._copilot_signals_lock:
+            if hasattr(self, '_copilot_signals_connected') and self._copilot_signals_connected:
+                return  # Already connected
             
-        self.copilotPanel.completion_requested.connect(
-            lambda before, after: self.copilotManager.get_inline_completion(
-                before, after, self._on_completion_ready
+            self.copilotPanel.completion_requested.connect(
+                lambda before, after: self.copilotManager.get_inline_completion(
+                    before, after, self._on_completion_ready
+                )
             )
-        )
-        self.copilotPanel.edit_requested.connect(
-            lambda text, instruction: self.copilotManager.edit_text(
-                text, instruction, self._on_edit_ready
+            self.copilotPanel.edit_requested.connect(
+                lambda text, instruction: self.copilotManager.edit_text(
+                    text, instruction, self._on_edit_ready
+                )
             )
-        )
-        self.copilotPanel.create_requested.connect(
-            lambda prompt, content_type: self.copilotManager.create_content(
-                prompt, content_type, self._on_content_created
+            self.copilotPanel.create_requested.connect(
+                lambda prompt, content_type: self.copilotManager.create_content(
+                    prompt, content_type, self._on_content_created
+                )
             )
-        )
-        self.copilotPanel.chat_requested.connect(self._on_chat_requested)
-        
-        # Connect copilot manager signals
-        self.copilotManager.completion_ready.connect(self._on_completion_ready)
-        self.copilotManager.chat_response.connect(self._on_chat_response)
-        self.copilotManager.status_changed.connect(
-            lambda status: self.copilotPanel.update_status(status)
-        )
-        self.copilotManager.error_occurred.connect(self._on_copilot_error)
-        
-        self._copilot_signals_connected = True
+            self.copilotPanel.chat_requested.connect(self._on_chat_requested)
+            
+            # Connect copilot manager signals
+            self.copilotManager.completion_ready.connect(self._on_completion_ready)
+            self.copilotManager.chat_response.connect(self._on_chat_response)
+            self.copilotManager.status_changed.connect(
+                lambda status: self.copilotPanel.update_status(status)
+            )
+            self.copilotManager.error_occurred.connect(self._on_copilot_error)
+            
+            self._copilot_signals_connected = True
             
     def requestInlineCompletion(self):
         """请求行内补全"""
@@ -1537,15 +1539,19 @@ class MainWindow(QMainWindow):
         
     def _on_copilot_error(self, error_msg: str):
         """处理Copilot错误"""
+        # Show user-friendly message without exposing sensitive details
+        user_message = "Copilot 出现错误，请稍后重试或检查网络连接。"
         InfoBar.error(
             title="Copilot错误",
-            content=error_msg,
+            content=user_message,
             orient=Qt.Horizontal,
             isClosable=True,
             position=InfoBarPosition.TOP,
             duration=5000,
             parent=self
         )
+        # Log detailed error for debugging
+        error(f"Copilot error details: {error_msg}", category=LogCategory.ERROR)
         error(f"Copilot error: {error_msg}")
         
     def audit_task(self, task_id: str, approved: bool, comment: str):
