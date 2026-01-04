@@ -1324,8 +1324,7 @@ class MainWindow(QMainWindow):
                 self._copilot_signals_lock = threading.Lock()
             
             with self._copilot_signals_lock:
-                if not hasattr(self, '_copilot_signals_connected'):
-                    self._copilot_signals_connected = True
+                if not hasattr(self, '_copilot_signals_connected') or not self._copilot_signals_connected:
                     self._connect_copilot_signals()
         else:
             info("Copilot面板已隐藏")
