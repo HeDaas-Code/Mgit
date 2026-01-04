@@ -21,7 +21,7 @@ from src.components.status_bar import StatusBar
 from src.utils.git_manager import GitManager
 from src.utils.config_manager import ConfigManager
 from src.components.log_dialog import LogDialog
-from src.utils.logger import info, warning, error, critical, show_error_message
+from src.utils.logger import info, warning, error, critical, show_error_message, debug, LogCategory
 
 # 导入插件管理器
 from src.utils.plugin_manager import init_plugin_manager, get_plugin_manager
