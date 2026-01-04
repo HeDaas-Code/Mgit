@@ -160,20 +160,25 @@ class CopilotManager(QObject):
             callback: Optional callback function
         """
         if not self.is_enabled():
-            warning("Copilot is not enabled")
+            warning("Copilot is not enabled", category=LogCategory.API)
             return
             
         self.current_mode = 'edit'
         self.status_changed.emit("Editing text...")
+        debug(f"Starting edit request, text length: {len(text)}", category=LogCategory.API)
         
         thread = EditThread(self.client, text, instruction)
         thread.edit_ready.connect(self._on_edit_ready)
         thread.error_occurred.connect(self._on_error)
         
+        # Store thread reference and connect callback if provided
+        self.current_threads.append(thread)
         if callback:
-            thread.edit_ready.connect(callback)
+            thread.edit_ready.connect(callback, Qt.SingleShotConnection)
             
+        thread.finished.connect(lambda: self._cleanup_thread(thread))
         thread.start()
+        info("Edit thread started", category=LogCategory.API)
         
     def create_content(
         self,
@@ -190,20 +195,25 @@ class CopilotManager(QObject):
             callback: Optional callback function
         """
         if not self.is_enabled():
-            warning("Copilot is not enabled")
+            warning("Copilot is not enabled", category=LogCategory.API)
             return
             
         self.current_mode = 'creation'
         self.status_changed.emit("Creating content...")
+        debug(f"Starting content creation: {content_type}", category=LogCategory.API)
         
         thread = CreationThread(self.client, prompt, content_type)
         thread.content_ready.connect(self._on_content_ready)
         thread.error_occurred.connect(self._on_error)
         
+        # Store thread reference and connect callback if provided
+        self.current_threads.append(thread)
         if callback:
-            thread.content_ready.connect(callback)
+            thread.content_ready.connect(callback, Qt.SingleShotConnection)
             
+        thread.finished.connect(lambda: self._cleanup_thread(thread))
         thread.start()
+        info("Creation thread started", category=LogCategory.API)
         
     def chat(
         self,
@@ -220,11 +230,12 @@ class CopilotManager(QObject):
             callback: Optional callback function
         """
         if not self.is_enabled():
-            warning("Copilot is not enabled")
+            warning("Copilot is not enabled", category=LogCategory.API)
             return
             
         self.current_mode = 'conversation'
         self.status_changed.emit("Thinking...")
+        debug(f"Starting chat request, message length: {len(message)}", category=LogCategory.API)
         
         if conversation_history is None:
             conversation_history = []
@@ -233,46 +244,59 @@ class CopilotManager(QObject):
         thread.response_ready.connect(self._on_chat_response)
         thread.error_occurred.connect(self._on_error)
         
+        # Store thread reference and connect callback if provided
+        self.current_threads.append(thread)
         if callback:
-            thread.response_ready.connect(callback)
+            thread.response_ready.connect(callback, Qt.SingleShotConnection)
             
+        thread.finished.connect(lambda: self._cleanup_thread(thread))
         thread.start()
+        info("Chat thread started", category=LogCategory.API)
         
     def _on_completion_ready(self, completion: str):
         """Handle completion ready"""
         self.completion_ready.emit(completion)
         self.status_changed.emit("Completion ready")
         self.current_mode = 'none'
-        info(f"Completion ready, length: {len(completion)}", category=LogCategory.API)
+        info(f"Completion ready, length: {len(completion)} chars", category=LogCategory.API)
+        debug(f"Completion content: {completion[:100]}...", category=LogCategory.API)
         
     def _on_edit_ready(self, edited_text: str):
         """Handle edit ready"""
         self.completion_ready.emit(edited_text)
         self.status_changed.emit("Edit complete")
         self.current_mode = 'none'
+        info(f"Edit complete, length: {len(edited_text)} chars", category=LogCategory.API)
+        debug(f"Edited content: {edited_text[:100]}...", category=LogCategory.API)
         
     def _on_content_ready(self, content: str):
         """Handle content creation ready"""
         self.completion_ready.emit(content)
         self.status_changed.emit("Content created")
         self.current_mode = 'none'
+        info(f"Content created, length: {len(content)} chars", category=LogCategory.API)
+        debug(f"Created content: {content[:100]}...", category=LogCategory.API)
         
     def _on_chat_response(self, response: str):
         """Handle chat response"""
         self.chat_response.emit(response)
         self.status_changed.emit("Ready")
+        info(f"Chat response received, length: {len(response)} chars", category=LogCategory.API)
+        debug(f"Chat response: {response[:100]}...", category=LogCategory.API)
         
     def _on_error(self, error_msg: str):
         """Handle error"""
         self.error_occurred.emit(error_msg)
         self.status_changed.emit("Error occurred")
         self.current_mode = 'none'
-        error(f"Copilot error: {error_msg}", category=LogCategory.API)
+        error(f"Copilot error: {error_msg}", category=LogCategory.ERROR)
+        debug(f"Error details: {error_msg}", category=LogCategory.ERROR)
         
     def _cleanup_thread(self, thread: QThread):
         """Remove finished thread from active threads list"""
         if thread in self.current_threads:
             self.current_threads.remove(thread)
+            debug(f"Cleaned up thread, {len(self.current_threads)} threads remaining", category=LogCategory.API)
 
 
 class CompletionThread(QThread):
@@ -289,6 +313,9 @@ class CompletionThread(QThread):
         
     def run(self):
         try:
+            info("CompletionThread started", category=LogCategory.API)
+            debug(f"Context before length: {len(self.context_before)}, after length: {len(self.context_after)}", category=LogCategory.API)
+            
             # Create prompt for completion
             prompt = f"""你是一个专业的写作助手。请根据上下文补全内容。
 
@@ -301,14 +328,19 @@ class CompletionThread(QThread):
 请生成自然的补全内容（只返回补全内容，不要包含任何解释）："""
 
             messages = [{'role': 'user', 'content': prompt}]
+            info("Sending completion request to API", category=LogCategory.API)
             response = self.client.chat_completion(messages, temperature=0.7, max_tokens=MAX_TOKENS_COMPLETION)
             
             if 'choices' in response and len(response['choices']) > 0:
                 completion = response['choices'][0]['message']['content'].strip()
+                info(f"Completion received, length: {len(completion)}", category=LogCategory.API)
                 self.completion_ready.emit(completion)
             else:
-                self.error_occurred.emit("No completion generated")
+                error_msg = "No completion generated"
+                error(error_msg, category=LogCategory.ERROR)
+                self.error_occurred.emit(error_msg)
         except Exception as e:
+            error(f"CompletionThread error: {str(e)}", category=LogCategory.ERROR)
             self.error_occurred.emit(str(e))
 
 
@@ -326,6 +358,9 @@ class EditThread(QThread):
         
     def run(self):
         try:
+            info("EditThread started", category=LogCategory.API)
+            debug(f"Text length: {len(self.text)}, instruction: {self.instruction[:50]}...", category=LogCategory.API)
+            
             prompt = f"""你是一个专业的文本编辑助手。请根据指令编辑以下文本。
 
 原文：
@@ -337,14 +372,19 @@ class EditThread(QThread):
 请返回编辑后的文本（只返回编辑后的文本，不要包含任何解释）："""
 
             messages = [{'role': 'user', 'content': prompt}]
+            info("Sending edit request to API", category=LogCategory.API)
             response = self.client.chat_completion(messages, temperature=0.5, max_tokens=MAX_TOKENS_EDIT)
             
             if 'choices' in response and len(response['choices']) > 0:
                 edited = response['choices'][0]['message']['content'].strip()
+                info(f"Edit received, length: {len(edited)}", category=LogCategory.API)
                 self.edit_ready.emit(edited)
             else:
-                self.error_occurred.emit("No edit generated")
+                error_msg = "No edit generated"
+                error(error_msg, category=LogCategory.ERROR)
+                self.error_occurred.emit(error_msg)
         except Exception as e:
+            error(f"EditThread error: {str(e)}", category=LogCategory.ERROR)
             self.error_occurred.emit(str(e))
 
 
@@ -362,6 +402,9 @@ class CreationThread(QThread):
         
     def run(self):
         try:
+            info("CreationThread started", category=LogCategory.API)
+            debug(f"Content type: {self.content_type}, prompt: {self.prompt[:50]}...", category=LogCategory.API)
+            
             system_prompt = f"""你是一个专业的写作助手，擅长创作各类文档。
 请根据用户的需求创作{self.content_type}格式的内容。
 内容应该结构清晰、逻辑严谨、语言流畅。"""
@@ -370,14 +413,19 @@ class CreationThread(QThread):
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': self.prompt}
             ]
+            info("Sending creation request to API", category=LogCategory.API)
             response = self.client.chat_completion(messages, temperature=0.8, max_tokens=MAX_TOKENS_CREATION)
             
             if 'choices' in response and len(response['choices']) > 0:
                 content = response['choices'][0]['message']['content'].strip()
+                info(f"Content created, length: {len(content)}", category=LogCategory.API)
                 self.content_ready.emit(content)
             else:
-                self.error_occurred.emit("No content generated")
+                error_msg = "No content generated"
+                error(error_msg, category=LogCategory.ERROR)
+                self.error_occurred.emit(error_msg)
         except Exception as e:
+            error(f"CreationThread error: {str(e)}", category=LogCategory.ERROR)
             self.error_occurred.emit(str(e))
 
 
@@ -395,16 +443,24 @@ class ChatThread(QThread):
         
     def run(self):
         try:
+            info("ChatThread started", category=LogCategory.API)
+            debug(f"Message: {self.message[:50]}..., history length: {len(self.history)}", category=LogCategory.API)
+            
             # Build messages from history
             messages = self.history.copy()
             messages.append({'role': 'user', 'content': self.message})
             
+            info("Sending chat request to API", category=LogCategory.API)
             response = self.client.chat_completion(messages, temperature=0.7, max_tokens=MAX_TOKENS_CHAT)
             
             if 'choices' in response and len(response['choices']) > 0:
                 reply = response['choices'][0]['message']['content'].strip()
+                info(f"Chat response received, length: {len(reply)}", category=LogCategory.API)
                 self.response_ready.emit(reply)
             else:
-                self.error_occurred.emit("No response generated")
+                error_msg = "No response generated"
+                error(error_msg, category=LogCategory.ERROR)
+                self.error_occurred.emit(error_msg)
         except Exception as e:
+            error(f"ChatThread error: {str(e)}", category=LogCategory.ERROR)
             self.error_occurred.emit(str(e))

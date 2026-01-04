@@ -1490,10 +1490,12 @@ class MainWindow(QMainWindow):
             
     def _on_edit_ready(self, edited_text: str):
         """处理编辑结果"""
+        info(f"Edit result received: length={len(edited_text)}", category=LogCategory.UI)
         self.copilotPanel.display_edit_result(edited_text)
         
     def _on_content_created(self, content: str):
         """处理创作结果"""
+        info(f"Content created: length={len(content)}", category=LogCategory.UI)
         self.copilotPanel.display_creation_result(content)
         
         # 可选：插入到编辑器
@@ -1510,7 +1512,9 @@ class MainWindow(QMainWindow):
             
     def _on_chat_requested(self, message: str):
         """处理聊天请求"""
+        info(f"Chat requested: {message[:50]}...", category=LogCategory.UI)
         if not self.copilotManager.is_enabled():
+            warning("Copilot not enabled for chat", category=LogCategory.UI)
             return
             
         # 添加用户消息到历史
@@ -1519,6 +1523,7 @@ class MainWindow(QMainWindow):
             'content': message
         })
         
+        debug("Calling copilotManager.chat()", category=LogCategory.UI)
         # 请求AI响应
         self.copilotManager.chat(
             message,
@@ -1528,6 +1533,7 @@ class MainWindow(QMainWindow):
         
     def _on_chat_response(self, response: str):
         """处理聊天响应"""
+        info(f"Chat response received: {response[:50]}...", category=LogCategory.UI)
         self.copilotPanel.add_chat_response(response)
         
     def _on_copilot_error(self, error_msg: str):

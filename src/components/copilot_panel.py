@@ -13,7 +13,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 from qfluentwidgets import (PushButton, LineEdit, ComboBox, TextEdit, 
                            SubtitleLabel, BodyLabel)
-from src.utils.logger import info, warning, error, LogCategory
+from src.utils.logger import info, warning, error, debug, LogCategory
 from src.copilot.agent_mode import AgentTask
 from datetime import datetime
 
@@ -216,8 +216,11 @@ class CopilotPanel(QWidget):
         """Handle chat send"""
         message = self.chat_input.text().strip()
         if not message:
+            warning("Empty chat message", category=LogCategory.UI)
             return
             
+        info(f"Chat message sent: {message[:50]}...", category=LogCategory.UI)
+        
         # Add to history display
         self._add_to_chat_history("You", message)
         
@@ -225,6 +228,7 @@ class CopilotPanel(QWidget):
         self.chat_input.clear()
         
         # Request chat response
+        debug("Emitting chat_requested signal", category=LogCategory.UI)
         self.chat_requested.emit(message)
         
     def _on_clear_chat(self):
@@ -239,9 +243,12 @@ class CopilotPanel(QWidget):
         instruction = self.edit_instruction.toPlainText().strip()
         
         if not text or not instruction:
+            warning("Empty edit text or instruction", category=LogCategory.UI)
             QMessageBox.warning(self, "输入错误", "请输入原文和编辑指令")
             return
             
+        info(f"Edit request: text length={len(text)}, instruction={instruction[:50]}...", category=LogCategory.UI)
+        debug("Emitting edit_requested signal", category=LogCategory.UI)
         self.edit_requested.emit(text, instruction)
         
     def _on_create_execute(self):
@@ -249,10 +256,13 @@ class CopilotPanel(QWidget):
         prompt = self.create_prompt.toPlainText().strip()
         
         if not prompt:
+            warning("Empty creation prompt", category=LogCategory.UI)
             QMessageBox.warning(self, "输入错误", "请输入创作提示")
             return
             
         content_type = self.content_type.currentText()
+        info(f"Creation request: type={content_type}, prompt={prompt[:50]}...", category=LogCategory.UI)
+        debug("Emitting create_requested signal", category=LogCategory.UI)
         self.create_requested.emit(prompt, content_type)
         
     def _on_refresh_tasks(self):
