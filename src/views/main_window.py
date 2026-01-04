@@ -1552,7 +1552,6 @@ class MainWindow(QMainWindow):
         )
         # Log detailed error for debugging
         error(f"Copilot error details: {error_msg}", category=LogCategory.ERROR)
-        error(f"Copilot error: {error_msg}")
         
     def audit_task(self, task_id: str, approved: bool, comment: str):
         """审计代理任务"""

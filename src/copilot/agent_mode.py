@@ -10,6 +10,7 @@ from PyQt5.QtCore import QObject, pyqtSignal, QThread
 from datetime import datetime
 import json
 import os
+import uuid
 from .siliconflow_client import SiliconFlowClient
 from src.utils.logger import info, warning, error, debug, LogCategory
 from src.utils.git_manager import GitManager
@@ -80,7 +81,6 @@ class AgentMode(QObject):
         """
         self.task_counter += 1
         # Use UUID for guaranteed uniqueness even with rapid task creation
-        import uuid
         task_id = f"task_{uuid.uuid4().hex[:8]}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         task = AgentTask(task_id, description, task_type)
         self.tasks[task_id] = task
