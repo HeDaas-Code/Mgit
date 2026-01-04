@@ -64,6 +64,7 @@ class AgentMode(QObject):
         self.git_manager = git_manager
         self.tasks: Dict[str, AgentTask] = {}
         self.task_counter = 0
+        self.active_threads = []  # Store active threads to prevent GC
         
     def create_task(self, description: str, task_type: str) -> str:
         """
@@ -109,6 +110,11 @@ class AgentMode(QObject):
         )
         thread.task_completed.connect(self._on_task_completed)
         thread.task_failed.connect(self._on_task_failed)
+        thread.finished.connect(lambda: self._cleanup_thread(thread))
+        
+        # Store thread to prevent garbage collection
+        self.active_threads.append(thread)
+        debug(f"Starting task execution thread for {task_id}", category=LogCategory.API)
         thread.start()
         
     def read_document(self, file_path: str, callback: Optional[Callable] = None) -> str:
@@ -335,12 +341,18 @@ class AgentMode(QObject):
             if task.task_type in ['edit', 'create', 'commit']:
                 task.status = 'auditing'
                 self.task_needs_audit.emit(task_id)
-                info(f"Task {task_id} needs audit")
+                info(f"Task {task_id} needs audit", category=LogCategory.API)
             else:
                 task.status = 'approved'
                 
             self.task_completed.emit(task_id, result)
             self.status_changed.emit("Task completed")
+            
+    def _cleanup_thread(self, thread):
+        """Remove finished thread from active threads list"""
+        if thread in self.active_threads:
+            self.active_threads.remove(thread)
+            debug(f"Cleaned up task execution thread", category=LogCategory.API)
             
     def _on_task_failed(self, task_id: str, error_msg: str):
         """Handle task failure"""
@@ -352,6 +364,7 @@ class AgentMode(QObject):
             
             self.task_failed.emit(task_id, error_msg)
             self.status_changed.emit(f"Task failed: {error_msg}")
+            error(f"Task {task_id} failed: {error_msg}", category=LogCategory.ERROR)
             
     def get_task(self, task_id: str) -> Optional[AgentTask]:
         """Get task by ID"""
@@ -390,6 +403,7 @@ class TaskExecutionThread(QThread):
         
     def run(self):
         try:
+            debug(f"TaskExecutionThread started for {self.task.task_id}", category=LogCategory.API)
             task_type = self.task.task_type
             
             if task_type == 'read':
@@ -405,9 +419,11 @@ class TaskExecutionThread(QThread):
             else:
                 raise ValueError(f"Unknown task type: {task_type}")
                 
+            info(f"Task {self.task.task_id} execution completed successfully", category=LogCategory.API)
             self.task_completed.emit(self.task.task_id, result)
             
         except Exception as e:
+            error(f"Task {self.task.task_id} execution failed: {str(e)}", category=LogCategory.ERROR)
             self.task_failed.emit(self.task.task_id, str(e))
             
     def _execute_read(self) -> str:
