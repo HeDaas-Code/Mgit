@@ -65,6 +65,7 @@ class AgentMode(QObject):
         self.tasks: Dict[str, AgentTask] = {}
         self.task_counter = 0
         self.active_threads = []  # Store active threads to prevent GC
+        self._stop_requested = False  # Flag for graceful shutdown
         
     def create_task(self, description: str, task_type: str) -> str:
         """
@@ -296,18 +297,28 @@ class AgentMode(QObject):
         self.status_changed.emit(f"Task {'approved' if approved else 'rejected'}")
         
     def _apply_task_changes(self, task: AgentTask):
-        """Apply approved task changes"""
+        """Apply approved task changes.
+        
+        For 'edit' and 'create' tasks, this writes the edited/created content to
+        the local file system.
+        
+        For 'commit' tasks, no additional changes are applied here because the
+        commit is expected to be created during the task's execution phase.
+        This branch exists to make that contract explicit.
+        """
         if task.task_type in ['edit', 'create']:
             # Write the edited/created content to file system
             if not task.result or not isinstance(task.result, dict):
-                warning(f"No valid result to apply for task {task.task_id}")
+                warning(f"No valid result to apply for task {task.task_id}", category=LogCategory.ERROR)
+                task.status = 'approved_failed_to_apply'
                 return
                 
             file_path = task.result.get('file_path')
             content = task.result.get('edited_content') or task.result.get('content')
             
             if not file_path or content is None:
-                warning(f"Incomplete task result for {task.task_id}: path={file_path}, has_content={content is not None}")
+                warning(f"Incomplete task result for {task.task_id}: path={file_path}, has_content={content is not None}", category=LogCategory.ERROR)
+                task.status = 'approved_failed_to_apply'
                 return
                 
             try:
@@ -323,11 +334,13 @@ class AgentMode(QObject):
                 info(f"Applied changes to {file_path} for task {task.task_id}", category=LogCategory.IO)
             except Exception as e:
                 error(f"Failed to apply changes for task {task.task_id}: {str(e)}", category=LogCategory.ERROR)
+                task.status = 'approved_failed_to_apply'
+                return
         elif task.task_type == 'commit':
-            # Commit was already made during execution
+            # Commit was already made during execution - no additional action needed
             pass
             
-        info(f"Applied changes for task {task.task_id}")
+        info(f"Applied changes for task {task.task_id}", category=LogCategory.API)
         
     def _on_task_completed(self, task_id: str, result: object):
         """Handle task completion"""
@@ -373,6 +386,18 @@ class AgentMode(QObject):
     def get_pending_audits(self) -> List[AgentTask]:
         """Get tasks pending audit"""
         return [task for task in self.tasks.values() if task.status == 'auditing']
+    
+    def stop_all_threads(self):
+        """Request graceful stop of all running threads"""
+        self._stop_requested = True
+        info("Requesting stop for all active threads", category=LogCategory.API)
+        
+        # Wait briefly for threads to finish
+        for thread in self.active_threads[:]:
+            if thread.isRunning():
+                thread.wait(1000)  # Wait up to 1 second
+                if thread.isRunning():
+                    warning(f"Thread still running after stop request", category=LogCategory.API)
         
     def export_task_history(self, file_path: str):
         """Export task history to file"""

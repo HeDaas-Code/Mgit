@@ -1317,12 +1317,16 @@ class MainWindow(QMainWindow):
         
         if not is_visible:
             info("Copilot面板已显示")
-            # 连接copilot信号 (with lock to prevent race condition)
+            # 连接copilot信号 (with proper lock to prevent race condition)
+            # Use threading.Lock for thread-safe signal connection
+            import threading
             if not hasattr(self, '_copilot_signals_lock'):
-                self._copilot_signals_lock = False
-            if not self._copilot_signals_lock:
-                self._copilot_signals_lock = True
-                self._connect_copilot_signals()
+                self._copilot_signals_lock = threading.Lock()
+            
+            with self._copilot_signals_lock:
+                if not hasattr(self, '_copilot_signals_connected'):
+                    self._copilot_signals_connected = True
+                    self._connect_copilot_signals()
         else:
             info("Copilot面板已隐藏")
             

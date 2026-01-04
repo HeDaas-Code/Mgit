@@ -13,7 +13,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 from qfluentwidgets import (PushButton, LineEdit, ComboBox, TextEdit, 
                            SubtitleLabel, BodyLabel)
-from src.utils.logger import info, warning, error, debug, LogCategory
+from src.utils.logger import info, warning, error, LogCategory
 from src.copilot.agent_mode import AgentTask
 from datetime import datetime
 
@@ -314,6 +314,10 @@ class CopilotPanel(QWidget):
         """Update task list"""
         self.task_list.clear()
         
+        # Validate input is iterable
+        if not tasks or not isinstance(tasks, (list, tuple)):
+            return
+        
         for task in tasks:
             if isinstance(task, AgentTask):
                 item_text = f"[{task.status}] {task.description}"
@@ -391,21 +395,37 @@ class TaskAuditDialog(QDialog):
         
         layout.addLayout(btn_layout)
         
+    def _validate_comment(self, require_comment: bool = False):
+        """Validate comment input
+        
+        Args:
+            require_comment: Whether comment is required
+            
+        Returns:
+            Comment text or None if invalid
+        """
+        comment_text = self.comment_edit.toPlainText().strip()
+        if require_comment and not comment_text:
+            QMessageBox.warning(self, "输入必需", "请填写审计意见后再继续。")
+            return None
+        return comment_text
+    
     def _on_approve(self):
         """Handle approve"""
-        comment_text = self.comment_edit.toPlainText().strip()
-        if not comment_text:
-            QMessageBox.warning(self, "输入必需", "请填写审计意见后再继续。")
+        # Comments optional for approvals
+        comment_text = self._validate_comment(require_comment=False)
+        if comment_text is None and self.comment_edit.toPlainText().strip():
+            # User had text but validation failed somehow
             return
         self.approved = True
-        self.comment = comment_text
+        self.comment = comment_text or ""
         self.accept()
         
     def _on_reject(self):
         """Handle reject"""
-        comment_text = self.comment_edit.toPlainText().strip()
-        if not comment_text:
-            QMessageBox.warning(self, "输入必需", "请填写审计意见后再继续。")
+        # Comments required for rejections
+        comment_text = self._validate_comment(require_comment=True)
+        if comment_text is None:
             return
         self.approved = False
         self.comment = comment_text

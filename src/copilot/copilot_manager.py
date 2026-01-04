@@ -12,10 +12,24 @@ from src.utils.logger import info, warning, error, debug, LogCategory
 from src.utils.config_manager import ConfigManager
 
 # Configuration constants
+# NOTE:
+# The following limits are intentionally conservative defaults chosen to balance
+# latency, cost, and response quality for typical interactive editor workflows.
+# They are not currently exposed via the settings dialog, but can be adjusted
+# by developers if different workloads require larger or smaller limits.
+#
+# MAX_TOKENS_* values limit how many tokens the model may generate per request.
+# - COMPLETION: short inline completions so the editor stays responsive.
+# - EDIT: larger edits that may rewrite bigger code snippets.
+# - CREATION: long-form content generation (e.g. documentation or new files).
+# - CHAT: multi-turn conversational replies without exhausting model limits.
 MAX_TOKENS_COMPLETION = 500
 MAX_TOKENS_EDIT = 2048
 MAX_TOKENS_CREATION = 4096
 MAX_TOKENS_CHAT = 2048
+# Context window around the cursor, measured in characters rather than tokens.
+# These values are tuned to provide enough local context for useful suggestions
+# while keeping prompts compact to reduce latency and API usage.
 MAX_CONTEXT_BEFORE = 500  # Characters of context before cursor
 MAX_CONTEXT_AFTER = 100   # Characters of context after cursor
 
