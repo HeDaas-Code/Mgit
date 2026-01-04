@@ -3,6 +3,7 @@
 
 import os
 import sys
+import threading
 from PyQt5.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QSplitter, QMessageBox, 
                            QStackedWidget, QFileDialog, QMenu, QAction)
 from PyQt5.QtCore import Qt, QSize, pyqtSignal, QTimer
@@ -1318,8 +1319,6 @@ class MainWindow(QMainWindow):
         if not is_visible:
             info("Copilot面板已显示")
             # 连接copilot信号 (with proper lock to prevent race condition)
-            # Use threading.Lock for thread-safe signal connection
-            import threading
             if not hasattr(self, '_copilot_signals_lock'):
                 self._copilot_signals_lock = threading.Lock()
             
