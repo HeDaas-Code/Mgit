@@ -1329,38 +1329,41 @@ class MainWindow(QMainWindow):
             info("Copilot面板已隐藏")
             
     def _connect_copilot_signals(self):
-        """连接Copilot面板信号"""
-        # Thread-safe check and set of connection flag
-        with self._copilot_signals_lock:
-            if hasattr(self, '_copilot_signals_connected') and self._copilot_signals_connected:
-                return  # Already connected
-            
-            self.copilotPanel.completion_requested.connect(
-                lambda before, after: self.copilotManager.get_inline_completion(
-                    before, after, self._on_completion_ready
-                )
+        """连接Copilot面板信号
+        
+        Note: This method should be called from within a lock context.
+        The caller (toggleCopilotPanel) must hold _copilot_signals_lock.
+        """
+        # Already connected check (lock held by caller)
+        if hasattr(self, '_copilot_signals_connected') and self._copilot_signals_connected:
+            return  # Already connected
+        
+        self.copilotPanel.completion_requested.connect(
+            lambda before, after: self.copilotManager.get_inline_completion(
+                before, after, self._on_completion_ready
             )
-            self.copilotPanel.edit_requested.connect(
-                lambda text, instruction: self.copilotManager.edit_text(
-                    text, instruction, self._on_edit_ready
-                )
+        )
+        self.copilotPanel.edit_requested.connect(
+            lambda text, instruction: self.copilotManager.edit_text(
+                text, instruction, self._on_edit_ready
             )
-            self.copilotPanel.create_requested.connect(
-                lambda prompt, content_type: self.copilotManager.create_content(
-                    prompt, content_type, self._on_content_created
-                )
+        )
+        self.copilotPanel.create_requested.connect(
+            lambda prompt, content_type: self.copilotManager.create_content(
+                prompt, content_type, self._on_content_created
             )
-            self.copilotPanel.chat_requested.connect(self._on_chat_requested)
-            
-            # Connect copilot manager signals
-            self.copilotManager.completion_ready.connect(self._on_completion_ready)
-            self.copilotManager.chat_response.connect(self._on_chat_response)
-            self.copilotManager.status_changed.connect(
-                lambda status: self.copilotPanel.update_status(status)
-            )
-            self.copilotManager.error_occurred.connect(self._on_copilot_error)
-            
-            self._copilot_signals_connected = True
+        )
+        self.copilotPanel.chat_requested.connect(self._on_chat_requested)
+        
+        # Connect copilot manager signals
+        self.copilotManager.completion_ready.connect(self._on_completion_ready)
+        self.copilotManager.chat_response.connect(self._on_chat_response)
+        self.copilotManager.status_changed.connect(
+            lambda status: self.copilotPanel.update_status(status)
+        )
+        self.copilotManager.error_occurred.connect(self._on_copilot_error)
+        
+        self._copilot_signals_connected = True
             
     def requestInlineCompletion(self):
         """请求行内补全"""
