@@ -55,6 +55,29 @@ class CopilotManager(QObject):
         
         # Load configuration
         self._load_config()
+    
+    def _create_single_shot_callback(self, signal, callback):
+        """
+        Create a wrapper callback that disconnects itself after first call.
+        This implements single-shot behavior for PyQt5 signals.
+        
+        Args:
+            signal: The PyQt signal to connect to
+            callback: The user callback to wrap
+            
+        Returns:
+            Wrapper function that disconnects after first call
+        """
+        def wrapper(*args, **kwargs):
+            try:
+                callback(*args, **kwargs)
+            finally:
+                # Disconnect after first call to implement single-shot behavior
+                try:
+                    signal.disconnect(wrapper)
+                except:
+                    pass  # Already disconnected or connection doesn't exist
+        return wrapper
         
     def _load_config(self):
         """Load copilot configuration"""
@@ -139,8 +162,11 @@ class CopilotManager(QObject):
         # Store thread reference and connect callback if provided
         self.current_threads.append(thread)
         if callback:
-            # Use a one-shot connection
-            thread.completion_ready.connect(callback, Qt.SingleShotConnection)
+            # Use single-shot callback wrapper
+            single_shot_callback = self._create_single_shot_callback(
+                thread.completion_ready, callback
+            )
+            thread.completion_ready.connect(single_shot_callback)
             
         thread.finished.connect(lambda: self._cleanup_thread(thread))
         thread.start()
@@ -174,7 +200,10 @@ class CopilotManager(QObject):
         # Store thread reference and connect callback if provided
         self.current_threads.append(thread)
         if callback:
-            thread.edit_ready.connect(callback, Qt.SingleShotConnection)
+            single_shot_callback = self._create_single_shot_callback(
+                thread.edit_ready, callback
+            )
+            thread.edit_ready.connect(single_shot_callback)
             
         thread.finished.connect(lambda: self._cleanup_thread(thread))
         thread.start()
@@ -209,7 +238,10 @@ class CopilotManager(QObject):
         # Store thread reference and connect callback if provided
         self.current_threads.append(thread)
         if callback:
-            thread.content_ready.connect(callback, Qt.SingleShotConnection)
+            single_shot_callback = self._create_single_shot_callback(
+                thread.content_ready, callback
+            )
+            thread.content_ready.connect(single_shot_callback)
             
         thread.finished.connect(lambda: self._cleanup_thread(thread))
         thread.start()
@@ -247,7 +279,10 @@ class CopilotManager(QObject):
         # Store thread reference and connect callback if provided
         self.current_threads.append(thread)
         if callback:
-            thread.response_ready.connect(callback, Qt.SingleShotConnection)
+            single_shot_callback = self._create_single_shot_callback(
+                thread.response_ready, callback
+            )
+            thread.response_ready.connect(single_shot_callback)
             
         thread.finished.connect(lambda: self._cleanup_thread(thread))
         thread.start()
