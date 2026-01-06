@@ -1543,8 +1543,10 @@ class MainWindow(QMainWindow):
         """处理创作响应 - 插入内容到编辑器"""
         info(f"Create response received: {content[:50]}...", category=LogCategory.UI)
         # Insert content at cursor position
-        cursor = self.editor.textCursor()
+        # Note: MarkdownEditor.editor is the actual EnhancedTextEdit widget
+        cursor = self.editor.editor.textCursor()
         cursor.insertText(content)
+        self.editor.editor.setTextCursor(cursor)
         
     def create_agent_task(self, task_type: str, file_path: str, instruction: str):
         """创建代理任务"""
