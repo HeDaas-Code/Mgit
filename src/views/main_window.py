@@ -1350,7 +1350,7 @@ class MainWindow(QMainWindow):
         )
         self.copilotPanel.create_requested.connect(
             lambda prompt, content_type: self.copilotManager.create_content(
-                prompt, content_type, self._on_content_created
+                prompt, content_type, self._on_create_response
             )
         )
         self.copilotPanel.chat_requested.connect(self._on_chat_requested)
@@ -1538,6 +1538,53 @@ class MainWindow(QMainWindow):
         """处理聊天响应"""
         info(f"Chat response received: {response[:50]}...", category=LogCategory.UI)
         self.copilotPanel.add_chat_response(response)
+        
+    def _on_create_response(self, content: str):
+        """处理创作响应 - 插入内容到编辑器"""
+        info(f"Create response received: {content[:50]}...", category=LogCategory.UI)
+        # Insert content at cursor position
+        cursor = self.editor.textCursor()
+        cursor.insertText(content)
+        
+    def create_agent_task(self, task_type: str, file_path: str, instruction: str):
+        """创建代理任务"""
+        info(f"Creating agent task: type={task_type}, file={file_path}", category=LogCategory.UI)
+        
+        if not self.agentMode:
+            error("Agent mode not initialized", category=LogCategory.ERROR)
+            return
+            
+        try:
+            if task_type == "edit":
+                self.agentMode.edit_document(file_path, instruction)
+            elif task_type == "create":
+                self.agentMode.create_document(file_path, instruction)
+            elif task_type == "commit":
+                files = [file_path] if file_path else None
+                self.agentMode.commit_changes(instruction, files)
+            else:
+                error(f"Unknown task type: {task_type}", category=LogCategory.ERROR)
+                return
+                
+            info(f"Agent task created successfully", category=LogCategory.UI)
+            self.refresh_agent_tasks()
+        except Exception as e:
+            error(f"Failed to create agent task: {e}", category=LogCategory.ERROR)
+            QMessageBox.critical(self, "错误", f"创建任务失败: {str(e)}")
+            
+    def refresh_agent_tasks(self):
+        """刷新代理任务列表"""
+        if not self.agentMode:
+            return
+            
+        # Clear list
+        self.copilotPanel.task_list.clear()
+        
+        # Add tasks
+        for task in self.agentMode.get_all_tasks():
+            item = QListWidgetItem(f"[{task.status}] {task.task_type}: {task.description}")
+            item.setData(Qt.UserRole, task.task_id)
+            self.copilotPanel.task_list.addItem(item)
         
     def _on_copilot_error(self, error_msg: str):
         """处理Copilot错误"""

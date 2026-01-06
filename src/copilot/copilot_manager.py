@@ -279,10 +279,11 @@ class CopilotManager(QObject):
         # Store thread reference and connect callback if provided
         self.current_threads.append(thread)
         if callback:
+            # Connect callback to our signal, not thread signal (avoid duplicate)
             single_shot_callback = self._create_single_shot_callback(
-                thread.response_ready, callback
+                self.chat_response, callback
             )
-            thread.response_ready.connect(single_shot_callback)
+            self.chat_response.connect(single_shot_callback)
             
         thread.finished.connect(lambda: self._cleanup_thread(thread))
         thread.start()

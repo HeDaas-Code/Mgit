@@ -8,7 +8,8 @@ Copilot Panel - UI for copilot features
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                            QTextEdit, QLineEdit, QPushButton, QComboBox,
                            QListWidget, QListWidgetItem,
-                           QTabWidget, QMessageBox, QDialog)
+                           QTabWidget, QMessageBox, QDialog, QFileDialog,
+                           QFormLayout, QDialogButtonBox)
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 from qfluentwidgets import (PushButton, LineEdit, ComboBox, TextEdit, 
@@ -195,6 +196,10 @@ class CopilotPanel(QWidget):
         # Button bar
         btn_layout = QHBoxLayout()
         
+        create_task_btn = PushButton("创建任务")
+        create_task_btn.clicked.connect(self._on_create_task)
+        btn_layout.addWidget(create_task_btn)
+        
         refresh_btn = PushButton("刷新")
         refresh_btn.clicked.connect(self._on_refresh_tasks)
         btn_layout.addWidget(refresh_btn)
@@ -265,10 +270,24 @@ class CopilotPanel(QWidget):
         debug("Emitting create_requested signal", category=LogCategory.UI)
         self.create_requested.emit(prompt, content_type)
         
+    def _on_create_task(self):
+        """Create a new agent task"""
+        dialog = TaskCreationDialog(self)
+        if dialog.exec_():
+            task_type, file_path, instruction = dialog.get_values()
+            # Emit signal to parent to create task
+            parent = self.parent()
+            if parent and hasattr(parent, 'create_agent_task'):
+                parent.create_agent_task(task_type, file_path, instruction)
+            else:
+                QMessageBox.warning(self, "错误", "无法创建任务")
+    
     def _on_refresh_tasks(self):
         """Refresh task list"""
         # Signal parent to refresh
-        pass
+        parent = self.parent()
+        if parent and hasattr(parent, 'refresh_agent_tasks'):
+            parent.refresh_agent_tasks()
         
     def _on_audit_task(self):
         """Audit selected task"""
@@ -444,6 +463,91 @@ class TaskAuditDialog(QDialog):
     def get_result(self):
         """Get audit result"""
         return self.approved, self.comment
+
+
+class TaskCreationDialog(QDialog):
+    """Dialog for creating agent tasks"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("创建代理任务")
+        self.setMinimumWidth(500)
+        self.initUI()
+        
+    def initUI(self):
+        """Initialize UI"""
+        layout = QFormLayout(self)
+        
+        # Task type
+        self.task_type = QComboBox()
+        self.task_type.addItems(["编辑文档", "创建文档", "提交更改"])
+        layout.addRow("任务类型:", self.task_type)
+        
+        # File path
+        file_layout = QHBoxLayout()
+        self.file_path = QLineEdit()
+        self.file_path.setPlaceholderText("文件路径...")
+        file_layout.addWidget(self.file_path)
+        
+        browse_btn = QPushButton("浏览...")
+        browse_btn.clicked.connect(self._browse_file)
+        file_layout.addWidget(browse_btn)
+        
+        layout.addRow("文件路径:", file_layout)
+        
+        # Instruction
+        self.instruction = QTextEdit()
+        self.instruction.setPlaceholderText("输入任务指令，例如：将所有TODO注释转换为GitHub Issues...")
+        self.instruction.setMinimumHeight(100)
+        layout.addRow("任务指令:", self.instruction)
+        
+        # Buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        button_box.accepted.connect(self._on_accept)
+        button_box.rejected.connect(self.reject)
+        layout.addRow(button_box)
+        
+    def _browse_file(self):
+        """Browse for file"""
+        task_type_text = self.task_type.currentText()
+        if task_type_text == "编辑文档":
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "选择文件", "", "All Files (*.*)"
+            )
+        else:
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "选择文件", "", "All Files (*.*)"
+            )
+        
+        if file_path:
+            self.file_path.setText(file_path)
+            
+    def _on_accept(self):
+        """Validate and accept"""
+        if not self.file_path.text().strip():
+            QMessageBox.warning(self, "输入错误", "请输入文件路径")
+            return
+            
+        if not self.instruction.toPlainText().strip():
+            QMessageBox.warning(self, "输入错误", "请输入任务指令")
+            return
+            
+        self.accept()
+        
+    def get_values(self):
+        """Get dialog values"""
+        task_types = {
+            "编辑文档": "edit",
+            "创建文档": "create",
+            "提交更改": "commit"
+        }
+        task_type = task_types[self.task_type.currentText()]
+        file_path = self.file_path.text().strip()
+        instruction = self.instruction.toPlainText().strip()
+        
+        return task_type, file_path, instruction
 
 
 class CopilotSettingsDialog(QDialog):
