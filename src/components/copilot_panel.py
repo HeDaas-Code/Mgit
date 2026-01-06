@@ -15,7 +15,6 @@ from PyQt5.QtGui import QTextCursor
 from qfluentwidgets import (PushButton, LineEdit, ComboBox, TextEdit, 
                            SubtitleLabel, BodyLabel)
 from src.utils.logger import info, warning, error, debug, LogCategory
-from src.copilot.agent_mode import AgentTask
 from datetime import datetime
 
 
@@ -73,10 +72,6 @@ class CopilotPanel(QWidget):
         # Create tab
         self.create_widget = self._create_creation_widget()
         self.tab_widget.addTab(self.create_widget, "创作")
-        
-        # Agent tab
-        self.agent_widget = self._create_agent_widget()
-        self.tab_widget.addTab(self.agent_widget, "代理")
         
         layout.addWidget(self.tab_widget)
         
@@ -180,36 +175,6 @@ class CopilotPanel(QWidget):
         create_btn = PushButton("开始创作")
         create_btn.clicked.connect(self._on_create_execute)
         layout.addWidget(create_btn)
-        
-        return widget
-        
-    def _create_agent_widget(self) -> QWidget:
-        """Create agent mode widget"""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        
-        # Task list
-        layout.addWidget(BodyLabel("任务列表:"))
-        self.task_list = QListWidget()
-        layout.addWidget(self.task_list)
-        
-        # Button bar
-        btn_layout = QHBoxLayout()
-        
-        create_task_btn = PushButton("创建任务")
-        create_task_btn.clicked.connect(self._on_create_task)
-        btn_layout.addWidget(create_task_btn)
-        
-        refresh_btn = PushButton("刷新")
-        refresh_btn.clicked.connect(self._on_refresh_tasks)
-        btn_layout.addWidget(refresh_btn)
-        
-        audit_btn = PushButton("审计任务")
-        audit_btn.clicked.connect(self._on_audit_task)
-        btn_layout.addWidget(audit_btn)
-        
-        btn_layout.addStretch()
-        layout.addLayout(btn_layout)
         
         return widget
         

@@ -47,9 +47,7 @@ class MainWindow(QMainWindow):
         
         # 初始化Copilot管理器
         from src.copilot.copilot_manager import CopilotManager
-        from src.copilot.agent_mode import AgentMode
         self.copilotManager = CopilotManager(self.configManager)
-        self.agentMode = None  # Will be initialized when git manager is available
         
         # 窗口设置
         self.setWindowTitle("MGit - Markdown笔记与Git版本控制")
@@ -1458,9 +1456,6 @@ class MainWindow(QMainWindow):
             # 重新加载copilot配置
             self.copilotManager.reload_config()
             
-            # 确保AgentMode初始化
-            self._ensure_agent_mode_initialized()
-            
             InfoBar.success(
                 title="设置已保存",
                 content="Copilot配置已更新",
@@ -1545,52 +1540,6 @@ class MainWindow(QMainWindow):
         cursor.insertText(content)
         self.editor.editor.setTextCursor(cursor)
         
-    def create_agent_task(self, task_type: str, file_path: str, instruction: str):
-        """创建代理任务"""
-        info(f"Creating agent task: type={task_type}, file={file_path}", category=LogCategory.UI)
-        
-        if not self.agentMode:
-            error("Agent mode not initialized", category=LogCategory.ERROR)
-            return
-            
-        try:
-            task_id = None
-            if task_type == "edit":
-                task_id = self.agentMode.edit_document(file_path, instruction)
-                info(f"Edit task created: {task_id}", category=LogCategory.UI)
-            elif task_type == "create":
-                task_id = self.agentMode.create_document(file_path, instruction)
-                info(f"Create task created: {task_id}", category=LogCategory.UI)
-            elif task_type == "commit":
-                files = [file_path] if file_path else None
-                task_id = self.agentMode.commit_changes(instruction, files)
-                info(f"Commit task created: {task_id}", category=LogCategory.UI)
-            else:
-                error(f"Unknown task type: {task_type}", category=LogCategory.ERROR)
-                return
-                
-            info(f"Agent task created successfully: {task_id}", category=LogCategory.UI)
-            self.refresh_agent_tasks()
-        except Exception as e:
-            error(f"Failed to create agent task: {e}", category=LogCategory.ERROR)
-            import traceback
-            error(traceback.format_exc(), category=LogCategory.ERROR)
-            QMessageBox.critical(self, "错误", f"创建任务失败: {str(e)}")
-            
-    def refresh_agent_tasks(self):
-        """刷新代理任务列表"""
-        if not self.agentMode:
-            return
-            
-        # Clear list
-        self.copilotPanel.task_list.clear()
-        
-        # Add tasks
-        for task in self.agentMode.get_all_tasks():
-            item = QListWidgetItem(f"[{task.status}] {task.task_type}: {task.description}")
-            item.setData(Qt.UserRole, task.task_id)
-            self.copilotPanel.task_list.addItem(item)
-        
     def _on_copilot_error(self, error_msg: str):
         """处理Copilot错误"""
         # Show user-friendly message without exposing sensitive details
@@ -1606,23 +1555,3 @@ class MainWindow(QMainWindow):
         )
         # Log detailed error for debugging
         error(f"Copilot error details: {error_msg}", category=LogCategory.ERROR)
-        
-    def audit_task(self, task_id: str, approved: bool, comment: str):
-        """审计代理任务"""
-        if self.agentMode:
-            self.agentMode.audit_task(task_id, approved, comment)
-            
-            # 刷新任务列表
-            pending_tasks = self.agentMode.get_pending_audits()
-            self.copilotPanel.update_task_list(pending_tasks)
-            
-            msg = "已批准" if approved else "已拒绝"
-            InfoBar.success(
-                title=f"任务{msg}",
-                content=f"任务 {task_id} {msg}",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=3000,
-                parent=self
-            )
