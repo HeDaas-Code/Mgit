@@ -830,9 +830,6 @@ class MainWindow(QMainWindow):
         # 同时也通知Git面板更新最近仓库列表
         self.configManager.recentRepositoriesChanged.connect(self.gitPanel.updateRecentRepositories)
         
-        # 仓库变化时尝试初始化AgentMode
-        self.repoChanged.connect(lambda: self._ensure_agent_mode_initialized())
-        
     def updatePreview(self):
         """ 更新Markdown预览 """
         content = self.editor.toPlainText()
