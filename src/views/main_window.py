@@ -3,6 +3,7 @@
 
 import os
 import sys
+import threading
 from PyQt5.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QSplitter, QMessageBox, 
                            QStackedWidget, QFileDialog, QMenu, QAction)
 from PyQt5.QtCore import Qt, QSize, pyqtSignal, QTimer
@@ -21,7 +22,7 @@ from src.components.status_bar import StatusBar
 from src.utils.git_manager import GitManager
 from src.utils.config_manager import ConfigManager
 from src.components.log_dialog import LogDialog
-from src.utils.logger import info, warning, error, critical, show_error_message
+from src.utils.logger import info, warning, error, show_error_message, debug, LogCategory
 
 # 导入插件管理器
 from src.utils.plugin_manager import init_plugin_manager, get_plugin_manager
@@ -43,6 +44,10 @@ class MainWindow(QMainWindow):
         
         # 初始化Git管理器为None
         self.gitManager = None
+        
+        # 初始化Copilot管理器
+        from src.copilot.copilot_manager import CopilotManager
+        self.copilotManager = CopilotManager(self.configManager)
         
         # 窗口设置
         self.setWindowTitle("MGit - Markdown笔记与Git版本控制")
@@ -179,11 +184,17 @@ class MainWindow(QMainWindow):
         # 创建Git面板
         self.gitPanel = GitPanel(self)
         
+        # 创建Copilot面板
+        from src.components.copilot_panel import CopilotPanel
+        self.copilotPanel = CopilotPanel(self)
+        self.copilotPanel.setVisible(False)  # 默认隐藏
+        
         # 添加组件到主分割器
         self.mainSplitter.addWidget(leftPanel)
         self.mainSplitter.addWidget(self.editorPreviewContainer)
         self.mainSplitter.addWidget(self.gitPanel)
-        self.mainSplitter.setSizes([250, 700, 250])
+        self.mainSplitter.addWidget(self.copilotPanel)
+        self.mainSplitter.setSizes([250, 600, 200, 250])
         
         # 将主分割器添加到中央布局
         self.centralLayout.addWidget(self.mainSplitter)
@@ -408,6 +419,45 @@ class MainWindow(QMainWindow):
         self.pluginsSubMenu = QMenu("已安装插件", self)
         self.pluginsSubMenu.setIcon(FluentIcon.LIBRARY.icon())
         pluginsMenu.addMenu(self.pluginsSubMenu)
+        
+        # Copilot菜单
+        copilotMenu = menuBar.addMenu("Copilot")
+        
+        # 显示/隐藏Copilot面板
+        self.toggleCopilotPanelAction = QAction("显示Copilot面板", self)
+        self.toggleCopilotPanelAction.setCheckable(True)
+        self.toggleCopilotPanelAction.setChecked(False)
+        self.toggleCopilotPanelAction.setIcon(FluentIcon.ROBOT.icon())
+        self.toggleCopilotPanelAction.triggered.connect(self.toggleCopilotPanel)
+        copilotMenu.addAction(self.toggleCopilotPanelAction)
+        
+        copilotMenu.addSeparator()
+        
+        # 行内补全
+        inlineCompletionAction = QAction("行内补全", self)
+        inlineCompletionAction.setShortcut("Alt+\\")
+        inlineCompletionAction.triggered.connect(self.requestInlineCompletion)
+        copilotMenu.addAction(inlineCompletionAction)
+        
+        # 编辑模式
+        editModeAction = QAction("编辑文本", self)
+        editModeAction.setShortcut("Ctrl+Shift+E")
+        editModeAction.triggered.connect(self.showEditMode)
+        copilotMenu.addAction(editModeAction)
+        
+        # 创作模式
+        creationModeAction = QAction("创作内容", self)
+        creationModeAction.setShortcut("Ctrl+Shift+C")
+        creationModeAction.triggered.connect(self.showCreationMode)
+        copilotMenu.addAction(creationModeAction)
+        
+        copilotMenu.addSeparator()
+        
+        # Copilot设置
+        copilotSettingsAction = QAction("Copilot设置", self)
+        copilotSettingsAction.setIcon(FluentIcon.SETTING.icon())
+        copilotSettingsAction.triggered.connect(self.showCopilotSettings)
+        copilotMenu.addAction(copilotSettingsAction)
         
         # 设置菜单
         settingsMenu = menuBar.addMenu("设置")
@@ -1255,4 +1305,250 @@ class MainWindow(QMainWindow):
     def onCursorPositionChanged(self, line_number):
         """ 处理光标位置变化 """
         # 在这里可以更新状态栏显示当前行列信息
-        pass 
+        pass     
+    # ==================== Copilot Methods ====================
+    
+    def toggleCopilotPanel(self):
+        """显示/隐藏Copilot面板"""
+        is_visible = self.copilotPanel.isVisible()
+        self.copilotPanel.setVisible(not is_visible)
+        self.toggleCopilotPanelAction.setChecked(not is_visible)
+        
+        if not is_visible:
+            info("Copilot面板已显示")
+            # 连接copilot信号 (with proper lock to prevent race condition)
+            if not hasattr(self, '_copilot_signals_lock'):
+                self._copilot_signals_lock = threading.Lock()
+            
+            with self._copilot_signals_lock:
+                if not hasattr(self, '_copilot_signals_connected') or not self._copilot_signals_connected:
+                    self._connect_copilot_signals()
+        else:
+            info("Copilot面板已隐藏")
+            
+    def _connect_copilot_signals(self):
+        """连接Copilot面板信号
+        
+        Note: This method should be called from within a lock context.
+        The caller (toggleCopilotPanel) must hold _copilot_signals_lock.
+        """
+        # Already connected check (lock held by caller)
+        if hasattr(self, '_copilot_signals_connected') and self._copilot_signals_connected:
+            return  # Already connected
+        
+        self.copilotPanel.completion_requested.connect(
+            lambda before, after: self.copilotManager.get_inline_completion(
+                before, after, self._on_completion_ready
+            )
+        )
+        self.copilotPanel.edit_requested.connect(
+            lambda text, instruction: self.copilotManager.edit_text(
+                text, instruction, self._on_edit_ready
+            )
+        )
+        self.copilotPanel.create_requested.connect(
+            lambda prompt, content_type: self.copilotManager.create_content(
+                prompt, content_type, self._on_create_response
+            )
+        )
+        self.copilotPanel.chat_requested.connect(self._on_chat_requested)
+        
+        # Connect copilot manager signals
+        self.copilotManager.completion_ready.connect(self._on_completion_ready)
+        self.copilotManager.chat_response.connect(self._on_chat_response)
+        self.copilotManager.status_changed.connect(
+            lambda status: self.copilotPanel.update_status(status)
+        )
+        self.copilotManager.error_occurred.connect(self._on_copilot_error)
+        
+        self._copilot_signals_connected = True
+            
+    def requestInlineCompletion(self):
+        """请求行内补全"""
+        if not self.copilotManager.is_enabled():
+            InfoBar.warning(
+                title="Copilot未启用",
+                content="请先在Copilot设置中配置API密钥",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+            
+        if not hasattr(self, 'editor'):
+            return
+            
+        # Import constants from copilot_manager
+        from src.copilot.copilot_manager import MAX_CONTEXT_BEFORE, MAX_CONTEXT_AFTER
+        
+        # 获取当前光标位置的上下文
+        cursor = self.editor.editor.textCursor()
+        text_before = self.editor.editor.toPlainText()[:cursor.position()]
+        text_after = self.editor.editor.toPlainText()[cursor.position():]
+        
+        # 请求补全 - use constants for context window
+        self.copilotManager.get_inline_completion(
+            text_before[-MAX_CONTEXT_BEFORE:] if len(text_before) > MAX_CONTEXT_BEFORE else text_before,
+            text_after[:MAX_CONTEXT_AFTER] if len(text_after) > MAX_CONTEXT_AFTER else text_after,
+            self._on_completion_ready
+        )
+        
+        InfoBar.info(
+            title="生成中",
+            content="正在生成补全建议...",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=2000,
+            parent=self
+        )
+        
+    def showEditMode(self):
+        """显示编辑模式"""
+        if not self.copilotManager.is_enabled():
+            InfoBar.warning(
+                title="Copilot未启用",
+                content="请先在Copilot设置中配置API密钥",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+            
+        # 显示copilot面板并切换到编辑模式
+        if not self.copilotPanel.isVisible():
+            self.toggleCopilotPanel()
+        self.copilotPanel.mode_combo.setCurrentIndex(1)  # 编辑模式
+        self.copilotPanel.tab_widget.setCurrentIndex(1)
+        
+    def showCreationMode(self):
+        """显示创作模式"""
+        if not self.copilotManager.is_enabled():
+            InfoBar.warning(
+                title="Copilot未启用",
+                content="请先在Copilot设置中配置API密钥",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            return
+            
+        # 显示copilot面板并切换到创作模式
+        if not self.copilotPanel.isVisible():
+            self.toggleCopilotPanel()
+        self.copilotPanel.mode_combo.setCurrentIndex(2)  # 创作模式
+        self.copilotPanel.tab_widget.setCurrentIndex(2)
+        
+    def showCopilotSettings(self):
+        """显示Copilot设置对话框"""
+        from src.components.copilot_panel import CopilotSettingsDialog
+        dialog = CopilotSettingsDialog(self.configManager, self)
+        if dialog.exec_():
+            # 重新加载copilot配置
+            self.copilotManager.reload_config()
+            
+            InfoBar.success(
+                title="设置已保存",
+                content="Copilot配置已更新",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=3000,
+                parent=self
+            )
+            
+    def _on_completion_ready(self, completion: str):
+        """处理补全结果"""
+        if hasattr(self, 'editor'):
+            # 在光标位置插入补全
+            cursor = self.editor.editor.textCursor()
+            cursor.insertText(completion)
+            
+            InfoBar.success(
+                title="补全完成",
+                content="已插入AI生成的内容",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=2000,
+                parent=self
+            )
+            
+    def _on_edit_ready(self, edited_text: str):
+        """处理编辑结果"""
+        info(f"Edit result received: length={len(edited_text)}", category=LogCategory.UI)
+        self.copilotPanel.display_edit_result(edited_text)
+        
+    def _on_content_created(self, content: str):
+        """处理创作结果"""
+        info(f"Content created: length={len(content)}", category=LogCategory.UI)
+        self.copilotPanel.display_creation_result(content)
+        
+        # 可选：插入到编辑器
+        reply = QMessageBox.question(
+            self,
+            "插入内容",
+            "是否将生成的内容插入到编辑器？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        
+        if reply == QMessageBox.Yes and hasattr(self, 'editor'):
+            self.editor.editor.setPlainText(content)
+            
+    def _on_chat_requested(self, message: str):
+        """处理聊天请求"""
+        info(f"Chat requested: {message[:50]}...", category=LogCategory.UI)
+        if not self.copilotManager.is_enabled():
+            warning("Copilot not enabled for chat", category=LogCategory.UI)
+            return
+            
+        # 添加用户消息到历史
+        self.copilotPanel.conversation_history.append({
+            'role': 'user',
+            'content': message
+        })
+        
+        debug("Calling copilotManager.chat()", category=LogCategory.UI)
+        # 请求AI响应
+        self.copilotManager.chat(
+            message,
+            self.copilotPanel.conversation_history.copy(),
+            self._on_chat_response
+        )
+        
+    def _on_chat_response(self, response: str):
+        """处理聊天响应"""
+        info(f"Chat response received: {response[:50]}...", category=LogCategory.UI)
+        self.copilotPanel.add_chat_response(response)
+        
+    def _on_create_response(self, content: str):
+        """处理创作响应 - 插入内容到编辑器"""
+        info(f"Create response received: {content[:50]}...", category=LogCategory.UI)
+        # Insert content at cursor position
+        # Note: MarkdownEditor.editor is the actual EnhancedTextEdit widget
+        cursor = self.editor.editor.textCursor()
+        cursor.insertText(content)
+        self.editor.editor.setTextCursor(cursor)
+        
+    def _on_copilot_error(self, error_msg: str):
+        """处理Copilot错误"""
+        # Show user-friendly message without exposing sensitive details
+        user_message = "Copilot 出现错误，请稍后重试或检查网络连接。"
+        InfoBar.error(
+            title="Copilot错误",
+            content=user_message,
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=5000,
+            parent=self
+        )
+        # Log detailed error for debugging
+        error(f"Copilot error details: {error_msg}", category=LogCategory.ERROR)

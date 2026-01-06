@@ -1,9 +1,15 @@
 # MGit - Markdown笔记与Git版本控制
 
-MGit是一款基于Python的Markdown笔记应用，结合了直观的编辑体验与强大的Git版本控制系统，为您提供高效、安全的知识管理解决方案。
+MGit是一款基于Python的Markdown笔记应用，结合了直观的编辑体验与强大的Git版本控制系统，并集成了AI Copilot写作助手，为您提供高效、安全、智能的知识管理解决方案。
 
 ## 主要特点
 
+- **AI Copilot写作助手**：集成SiliconFlow大语言模型，提供智能写作辅助
+  - **行内补全**：根据上下文智能生成续写内容
+  - **编辑模式**：根据指令优化和修改文本
+  - **创作模式**：从提示词生成完整文档
+  - **对话模式**：与AI助手自然交流，获取写作建议
+  - **代理模式**：自动执行文档任务，支持审计工作流
 - **VSCode风格UI**：全新的用户界面设计，完全仿照VSCode的界面布局和配色方案
   - **活动栏（Activity Bar）**：左侧垂直图标导航，快速切换不同功能视图
   - **侧边栏（Side Bar）**：文件浏览器、Git视图等功能面板
@@ -70,6 +76,7 @@ MGit提供了一个简单易用的启动脚本`start.py`，支持自动配置环
 ## 文档
 
 - [安装指南](./docs/installation.md)
+- [Copilot使用指南](./docs/copilot_guide.md)
 - [OAuth认证指南](./docs/oauth_authentication.md)
 - [插件开发指南](./docs/plugin_development.md)
 - [更新日志](./CHANGELOG.md)

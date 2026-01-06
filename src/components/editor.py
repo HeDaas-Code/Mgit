@@ -162,6 +162,9 @@ class MarkdownHighlighter(QSyntaxHighlighter):
 class EnhancedTextEdit(QPlainTextEdit):
     """ 增强型文本编辑器，提供更多Markdown辅助功能 """
     
+    # 新增copilot信号
+    request_copilot_completion = pyqtSignal()
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setLineWrapMode(QPlainTextEdit.WidgetWidth)
@@ -343,6 +346,13 @@ class EnhancedTextEdit(QPlainTextEdit):
     def createStandardContextMenu(self):
         """ 创建标准右键菜单并添加Markdown特有选项 """
         menu = super().createStandardContextMenu()
+        
+        # 添加分隔符
+        menu.addSeparator()
+        
+        # 添加Copilot行内补全选项
+        copilot_action = menu.addAction("Copilot行内补全 (Alt+\\)")
+        copilot_action.triggered.connect(lambda: self.request_copilot_completion.emit())
         
         # 添加分隔符
         menu.addSeparator()
@@ -711,6 +721,16 @@ class MarkdownEditor(QWidget):
         """ 连接信号 """
         self.editor.textChanged.connect(self.onTextChanged)
         self.editor.cursorPositionChanged.connect(self.onCursorPositionChanged)
+        
+        # 连接Copilot行内补全信号
+        self.editor.request_copilot_completion.connect(self._on_request_copilot_completion)
+        
+    def _on_request_copilot_completion(self):
+        """Handle copilot completion request from context menu"""
+        # Get main window and call requestInlineCompletion
+        main_window = self.window()
+        if main_window and hasattr(main_window, 'requestInlineCompletion'):
+            main_window.requestInlineCompletion()
         
     def onTextChanged(self):
         """ 处理文本变化 """
