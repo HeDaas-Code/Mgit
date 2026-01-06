@@ -1557,21 +1557,27 @@ class MainWindow(QMainWindow):
             return
             
         try:
+            task_id = None
             if task_type == "edit":
-                self.agentMode.edit_document(file_path, instruction)
+                task_id = self.agentMode.edit_document(file_path, instruction)
+                info(f"Edit task created: {task_id}", category=LogCategory.UI)
             elif task_type == "create":
-                self.agentMode.create_document(file_path, instruction)
+                task_id = self.agentMode.create_document(file_path, instruction)
+                info(f"Create task created: {task_id}", category=LogCategory.UI)
             elif task_type == "commit":
                 files = [file_path] if file_path else None
-                self.agentMode.commit_changes(instruction, files)
+                task_id = self.agentMode.commit_changes(instruction, files)
+                info(f"Commit task created: {task_id}", category=LogCategory.UI)
             else:
                 error(f"Unknown task type: {task_type}", category=LogCategory.ERROR)
                 return
                 
-            info(f"Agent task created successfully", category=LogCategory.UI)
+            info(f"Agent task created successfully: {task_id}", category=LogCategory.UI)
             self.refresh_agent_tasks()
         except Exception as e:
             error(f"Failed to create agent task: {e}", category=LogCategory.ERROR)
+            import traceback
+            error(traceback.format_exc(), category=LogCategory.ERROR)
             QMessageBox.critical(self, "错误", f"创建任务失败: {str(e)}")
             
     def refresh_agent_tasks(self):

@@ -272,11 +272,20 @@ class CopilotPanel(QWidget):
         
     def _on_create_task(self):
         """Create a new agent task"""
+        # Check if parent has agent mode initialized
+        parent = self.parent()
+        if not parent or not hasattr(parent, 'agentMode') or not parent.agentMode:
+            QMessageBox.warning(
+                self, 
+                "代理模式未初始化", 
+                "请先配置Copilot API密钥并打开一个Git仓库"
+            )
+            return
+            
         dialog = TaskCreationDialog(self)
         if dialog.exec_():
             task_type, file_path, instruction = dialog.get_values()
             # Emit signal to parent to create task
-            parent = self.parent()
             if parent and hasattr(parent, 'create_agent_task'):
                 parent.create_agent_task(task_type, file_path, instruction)
             else:
