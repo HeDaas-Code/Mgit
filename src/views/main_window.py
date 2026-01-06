@@ -832,6 +832,9 @@ class MainWindow(QMainWindow):
         # 同时也通知Git面板更新最近仓库列表
         self.configManager.recentRepositoriesChanged.connect(self.gitPanel.updateRecentRepositories)
         
+        # 仓库变化时尝试初始化AgentMode
+        self.repoChanged.connect(lambda: self._ensure_agent_mode_initialized())
+        
     def updatePreview(self):
         """ 更新Markdown预览 """
         content = self.editor.toPlainText()
@@ -1455,14 +1458,8 @@ class MainWindow(QMainWindow):
             # 重新加载copilot配置
             self.copilotManager.reload_config()
             
-            # 初始化agent mode if git manager available
-            if self.gitManager and self.copilotManager.client:
-                from src.copilot.agent_mode import AgentMode
-                self.agentMode = AgentMode(
-                    self.copilotManager.client,
-                    self.gitManager
-                )
-                info("Agent mode initialized")
+            # 确保AgentMode初始化
+            self._ensure_agent_mode_initialized()
             
             InfoBar.success(
                 title="设置已保存",
