@@ -41,22 +41,7 @@ class CopilotPanel(QWidget):
         layout.addWidget(title)
         
         # Mode selector
-        mode_layout = QHBoxLayout()
-        mode_layout.addWidget(BodyLabel("模式:"))
         
-        self.mode_combo = ComboBox()
-        self.mode_combo.addItems([
-            "对话模式",
-            "编辑模式",
-            "创作模式",
-            "行内补全",
-            "代理模式"
-        ])
-        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
-        mode_layout.addWidget(self.mode_combo)
-        mode_layout.addStretch()
-        
-        layout.addLayout(mode_layout)
         
         # Create tab widget for different modes
         self.tab_widget = QTabWidget()
