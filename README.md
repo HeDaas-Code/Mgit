@@ -4,7 +4,8 @@ MGit是一款基于Python的Markdown笔记应用，结合了直观的编辑体�
 
 ## 主要特点
 
-- **AI Copilot写作助手**：集成SiliconFlow大语言模型，提供智能写作辅助
+- **AI Copilot写作助手**：集成大语言模型，提供智能写作辅助
+  - **多提供商支持**：支持SiliconFlow和ModelScope API-Inference两种服务提供商
   - **行内补全**：根据上下文智能生成续写内容
   - **编辑模式**：根据指令优化和修改文本
   - **创作模式**：从提示词生成完整文档
