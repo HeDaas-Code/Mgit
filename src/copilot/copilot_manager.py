@@ -8,6 +8,7 @@ Copilot Manager - Central manager for all copilot features
 from typing import Dict, List, Optional, Callable
 from PyQt5.QtCore import QObject, pyqtSignal, QThread, Qt
 from .siliconflow_client import SiliconFlowClient
+from .modelscope_client import ModelScopeClient
 from src.utils.logger import info, warning, error, debug, LogCategory
 from src.utils.config_manager import ConfigManager
 
@@ -33,6 +34,10 @@ MAX_TOKENS_CHAT = 2048
 MAX_CONTEXT_BEFORE = 500  # Characters of context before cursor
 MAX_CONTEXT_AFTER = 100   # Characters of context after cursor
 
+# Provider constants
+PROVIDER_SILICONFLOW = 'siliconflow'
+PROVIDER_MODELSCOPE = 'modelscope'
+
 class CopilotManager(QObject):
     """
     Manager for copilot functionality
@@ -50,6 +55,7 @@ class CopilotManager(QObject):
         self.config_manager = config_manager
         self.client = None
         self.enabled = False
+        self.provider = PROVIDER_SILICONFLOW  # siliconflow or modelscope
         self.current_mode = 'none'  # none, inline, edit, creation, conversation, agent
         self.current_threads = []  # Store active threads
         
@@ -82,13 +88,28 @@ class CopilotManager(QObject):
     def _load_config(self):
         """Load copilot configuration"""
         try:
+            # Load provider selection
+            self.provider = self.config_manager.get_plugin_setting('copilot', 'provider', PROVIDER_SILICONFLOW)
+            
             api_key = self.config_manager.get_plugin_setting('copilot', 'api_key', '')
-            model = self.config_manager.get_plugin_setting('copilot', 'model', SiliconFlowClient.DEFAULT_MODELS['chat'])
+            
+            # Get default model based on provider
+            if self.provider == PROVIDER_MODELSCOPE:
+                default_model = ModelScopeClient.DEFAULT_MODELS['chat']
+            else:
+                default_model = SiliconFlowClient.DEFAULT_MODELS['chat']
+                
+            model = self.config_manager.get_plugin_setting('copilot', 'model', default_model)
             self.enabled = self.config_manager.get_plugin_setting('copilot', 'enabled', False)
             
             if api_key:
-                self.client = SiliconFlowClient(api_key, model)
-                info("Copilot client initialized", category=LogCategory.API)
+                # Create client based on provider
+                if self.provider == PROVIDER_MODELSCOPE:
+                    self.client = ModelScopeClient(api_key, model)
+                    info("Copilot client initialized with ModelScope", category=LogCategory.API)
+                else:
+                    self.client = SiliconFlowClient(api_key, model)
+                    info("Copilot client initialized with SiliconFlow", category=LogCategory.API)
             else:
                 warning("Copilot API key not configured", category=LogCategory.CONFIG)
         except Exception as e:
@@ -99,28 +120,74 @@ class CopilotManager(QObject):
         self._load_config()
         info("Copilot configuration reloaded", category=LogCategory.CONFIG)
             
-    def set_api_key(self, api_key: str, model: str = None):
+    def set_api_key(self, api_key: str, model: str = None, provider: str = None):
         """
         Set or update API key
         
         Args:
-            api_key: SiliconFlow API key
+            api_key: API key (SiliconFlow or ModelScope)
             model: Optional model name
+            provider: Optional provider name (PROVIDER_SILICONFLOW or PROVIDER_MODELSCOPE)
         """
         self.config_manager.set_plugin_setting('copilot', 'api_key', api_key)
+        
+        # Update provider if specified
+        if provider:
+            self.provider = provider
+            self.config_manager.set_plugin_setting('copilot', 'provider', provider)
+        
+        # Get default model based on provider
+        if self.provider == PROVIDER_MODELSCOPE:
+            default_model = ModelScopeClient.DEFAULT_MODELS['chat']
+        else:
+            default_model = SiliconFlowClient.DEFAULT_MODELS['chat']
+        
         if model:
             self.config_manager.set_plugin_setting('copilot', 'model', model)
         else:
-            model = self.config_manager.get_plugin_setting('copilot', 'model', SiliconFlowClient.DEFAULT_MODELS['chat'])
+            model = self.config_manager.get_plugin_setting('copilot', 'model', default_model)
+        
+        # Create client based on provider
+        if self.provider == PROVIDER_MODELSCOPE:
+            self.client = ModelScopeClient(api_key, model)
+            info("Copilot API key updated for ModelScope", category=LogCategory.CONFIG)
+        else:
+            self.client = SiliconFlowClient(api_key, model)
+            info("Copilot API key updated for SiliconFlow", category=LogCategory.CONFIG)
             
-        self.client = SiliconFlowClient(api_key, model)
         self.enabled = True
         self.config_manager.set_plugin_setting('copilot', 'enabled', True)
-        info("Copilot API key updated", category=LogCategory.CONFIG)
         
     def is_enabled(self) -> bool:
         """Check if copilot is enabled"""
         return self.enabled and self.client is not None
+        
+    def set_provider(self, provider: str):
+        """
+        Switch to a different provider
+        
+        Args:
+            provider: Provider name (PROVIDER_SILICONFLOW or PROVIDER_MODELSCOPE)
+        """
+        if provider not in [PROVIDER_SILICONFLOW, PROVIDER_MODELSCOPE]:
+            error(f"Invalid provider: {provider}", category=LogCategory.CONFIG)
+            return
+            
+        self.provider = provider
+        self.config_manager.set_plugin_setting('copilot', 'provider', provider)
+        
+        # Reload configuration with new provider
+        self._load_config()
+        info(f"Provider switched to: {provider}", category=LogCategory.CONFIG)
+    
+    def get_provider(self) -> str:
+        """
+        Get current provider
+        
+        Returns:
+            Current provider name
+        """
+        return self.provider
         
     def set_enabled(self, enabled: bool):
         """Enable or disable copilot"""

@@ -53,13 +53,29 @@ MGit Copilot 是一个专注于写作的AI助手，集成了最新的大语言�
 
 ### 1. 配置API密钥
 
+MGit Copilot 支持两种大模型服务提供商：
+
+#### 选项1: SiliconFlow (默认)
 1. 访问 [SiliconFlow官网](https://siliconflow.cn) 注册账号并获取API密钥
 2. 在MGit中打开 `Copilot > Copilot设置`
-3. 输入API密钥
-4. 选择模型（推荐使用 Qwen/Qwen2.5-7B-Instruct）
-5. 勾选"启用Copilot"
-6. 点击"测试连接"验证配置
-7. 点击"保存"
+3. 选择 "SiliconFlow" 作为提供商
+4. 输入API密钥
+5. 选择模型（推荐使用 Qwen/Qwen2.5-7B-Instruct）
+6. 勾选"启用Copilot"
+7. 点击"测试连接"验证配置
+8. 点击"保存"
+
+#### 选项2: ModelScope API-Inference (新增!)
+1. 访问 [ModelScope官网](https://www.modelscope.cn) 注册账号并获取API密钥
+2. 在MGit中打开 `Copilot > Copilot设置`
+3. 选择 "ModelScope" 作为提供商
+4. 输入API密钥
+5. 选择模型（推荐使用 qwen/Qwen2.5-7B-Instruct）
+6. 勾选"启用Copilot"
+7. 点击"测试连接"验证配置
+8. 点击"保存"
+
+**注意**: 两个提供商的模型名称格式略有不同（ModelScope使用小写命名空间）
 
 ### 2. 显示Copilot面板
 
@@ -208,8 +224,9 @@ MGit Copilot 是一个专注于写作的AI助手，集成了最新的大语言�
 **A**: 
 1. 检查API密钥是否正确
 2. 确认网络连接正常
-3. 验证SiliconFlow账户余额
-4. 查看错误信息，按提示操作
+3. 验证服务提供商账户余额（SiliconFlow或ModelScope）
+4. 确保选择的提供商与API密钥匹配
+5. 查看错误信息，按提示操作
 
 ### Q: 生成的内容质量不理想？
 
@@ -253,11 +270,19 @@ MGit Copilot 是一个专注于写作的AI助手，集成了最新的大语言�
 ## 技术支持
 
 - **文档**: 参考本指南和项目README
+- **配置指南**: [Copilot配置文档](./copilot_config.md)
 - **问题反馈**: 提交GitHub Issue
 - **功能建议**: 通过PR或Issue提出
-- **API文档**: https://docs.siliconflow.cn
+- **SiliconFlow API文档**: https://docs.siliconflow.cn
+- **ModelScope API文档**: https://www.modelscope.cn/docs/model-service/API-Inference/intro
 
 ## 更新日志
+
+### Version 1.1.0 (2026-01-07)
+
+- 新增ModelScope API-Inference服务提供商支持
+- 支持在SiliconFlow和ModelScope之间切换
+- 更新配置文档，详细说明两个提供商的使用
 
 ### Version 1.0.0 (2026-01-03)
 
