@@ -1,0 +1,229 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""
+ModelScope API-Inference Client for MGit Copilot
+https://www.modelscope.cn/docs/model-service/API-Inference/intro
+"""
+
+import requests
+import json
+from typing import List, Dict, Optional, Generator
+from src.utils.logger import info, warning, error, debug, LogCategory
+
+class ModelScopeClient:
+    """Client for ModelScope API-Inference"""
+    
+    BASE_URL = "https://api-inference.modelscope.cn/v1"
+    
+    # 默认模型列表
+    DEFAULT_MODELS = {
+        'chat': 'qwen/Qwen2.5-7B-Instruct',
+        'completion': 'qwen/Qwen2.5-7B-Instruct',
+        'embedding': 'iic/nlp_gte_sentence-embedding_chinese-base'
+    }
+    
+    def __init__(self, api_key: str, model: str = None):
+        """
+        Initialize ModelScope client
+        
+        Args:
+            api_key: ModelScope API key
+            model: Model name to use (defaults to Qwen2.5-7B-Instruct)
+        """
+        self.api_key = api_key
+        self.model = model or self.DEFAULT_MODELS['chat']
+        self.headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        }
+        info(f"ModelScope client initialized with model: {self.model}", category=LogCategory.API)
+        
+    def chat_completion(
+        self, 
+        messages: List[Dict[str, str]], 
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+        stream: bool = False
+    ) -> Dict:
+        """
+        Send chat completion request
+        
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+            temperature: Sampling temperature (0-2)
+            max_tokens: Maximum tokens to generate
+            stream: Whether to stream the response
+            
+        Returns:
+            Response dict from API
+        """
+        # Validate temperature
+        if not 0 <= temperature <= 2:
+            warning(f"Temperature {temperature} out of range [0, 2], clamping", category=LogCategory.API)
+            temperature = max(0, min(2, temperature))
+            
+        url = f"{self.BASE_URL}/chat/completions"
+        data = {
+            'model': self.model,
+            'messages': messages,
+            'temperature': temperature,
+            'max_tokens': max_tokens,
+            'stream': stream
+        }
+        
+        debug(f"Sending API request to {url} with {len(messages)} messages", category=LogCategory.API)
+        
+        try:
+            if stream:
+                return self._stream_chat_completion(url, data)
+            else:
+                # Use shorter timeout to prevent UI freeze
+                response = requests.post(url, headers=self.headers, json=data, timeout=30)
+                response.raise_for_status()
+                result = response.json()
+                info(f"API request successful, response size: {len(str(result))} chars", category=LogCategory.API)
+                return result
+        except requests.exceptions.Timeout as e:
+            error(f"ModelScope API timeout after 30s: {str(e)}", category=LogCategory.API)
+            raise
+        except requests.exceptions.RequestException as e:
+            error(f"ModelScope API error: {str(e)}", category=LogCategory.API)
+            raise
+            
+    def _stream_chat_completion(self, url: str, data: Dict) -> Generator:
+        """
+        Stream chat completion response
+        
+        Args:
+            url: API endpoint URL
+            data: Request data
+            
+        Yields:
+            Chunks of response text
+        """
+        debug("Starting streaming API request", category=LogCategory.API)
+        try:
+            response = requests.post(
+                url, 
+                headers=self.headers, 
+                json=data, 
+                stream=True,
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            for line in response.iter_lines():
+                if line:
+                    line = line.decode('utf-8')
+                    if line.startswith('data: '):
+                        data_str = line[6:]
+                        if data_str.strip() == '[DONE]':
+                            info("Streaming completed", category=LogCategory.API)
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            if 'choices' in chunk and len(chunk['choices']) > 0:
+                                delta = chunk['choices'][0].get('delta', {})
+                                if 'content' in delta:
+                                    yield delta['content']
+                        except json.JSONDecodeError:
+                            continue
+        except requests.exceptions.Timeout as e:
+            error(f"ModelScope streaming timeout after 30s: {str(e)}", category=LogCategory.API)
+            raise
+        except requests.exceptions.RequestException as e:
+            error(f"ModelScope streaming error: {str(e)}", category=LogCategory.API)
+            raise
+            
+    def text_completion(
+        self,
+        prompt: str,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+        stop: Optional[List[str]] = None
+    ) -> str:
+        """
+        Generate text completion
+        
+        Args:
+            prompt: Input prompt text
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+            stop: List of stop sequences
+            
+        Returns:
+            Generated completion text
+        """
+        messages = [{'role': 'user', 'content': prompt}]
+        response = self.chat_completion(messages, temperature, max_tokens)
+        
+        if 'choices' in response and len(response['choices']) > 0:
+            content = response['choices'][0]['message']['content']
+            
+            # Apply stop sequences if provided
+            if stop:
+                first_stop_index = None
+                for s in stop:
+                    if not s:
+                        continue
+                    idx = content.find(s)
+                    if idx != -1 and (first_stop_index is None or idx < first_stop_index):
+                        first_stop_index = idx
+                if first_stop_index is not None:
+                    content = content[:first_stop_index]
+                    
+            return content
+        return ""
+        
+    def get_embedding(self, text: str) -> List[float]:
+        """
+        Get text embedding
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Embedding vector
+        """
+        url = f"{self.BASE_URL}/embeddings"
+        data = {
+            'model': self.DEFAULT_MODELS['embedding'],
+            'input': text
+        }
+        
+        debug(f"Requesting embedding for text length: {len(text)}", category=LogCategory.API)
+        
+        try:
+            response = requests.post(url, headers=self.headers, json=data, timeout=20)
+            response.raise_for_status()
+            result = response.json()
+            
+            if 'data' in result and len(result['data']) > 0:
+                embedding = result['data'][0]['embedding']
+                info(f"Embedding received, dimension: {len(embedding)}", category=LogCategory.API)
+                return embedding
+            return []
+        except requests.exceptions.Timeout as e:
+            error(f"ModelScope embedding timeout after 20s: {str(e)}", category=LogCategory.API)
+            raise
+        except requests.exceptions.RequestException as e:
+            error(f"ModelScope embedding error: {str(e)}", category=LogCategory.API)
+            raise
+            
+    def test_connection(self) -> bool:
+        """
+        Test API connection
+        
+        Returns:
+            True if connection successful, False otherwise
+        """
+        debug("Testing API connection", category=LogCategory.API)
+        try:
+            messages = [{'role': 'user', 'content': 'Hello'}]
+            self.chat_completion(messages, max_tokens=10)
+            info("API connection test successful", category=LogCategory.API)
+            return True
+        except Exception as e:
+            error(f"Connection test failed: {str(e)}", category=LogCategory.API)
+            return False
