@@ -34,6 +34,10 @@ MAX_TOKENS_CHAT = 2048
 MAX_CONTEXT_BEFORE = 500  # Characters of context before cursor
 MAX_CONTEXT_AFTER = 100   # Characters of context after cursor
 
+# Provider constants
+PROVIDER_SILICONFLOW = 'siliconflow'
+PROVIDER_MODELSCOPE = 'modelscope'
+
 class CopilotManager(QObject):
     """
     Manager for copilot functionality
@@ -51,7 +55,7 @@ class CopilotManager(QObject):
         self.config_manager = config_manager
         self.client = None
         self.enabled = False
-        self.provider = 'siliconflow'  # siliconflow or modelscope
+        self.provider = PROVIDER_SILICONFLOW  # siliconflow or modelscope
         self.current_mode = 'none'  # none, inline, edit, creation, conversation, agent
         self.current_threads = []  # Store active threads
         
@@ -85,12 +89,12 @@ class CopilotManager(QObject):
         """Load copilot configuration"""
         try:
             # Load provider selection
-            self.provider = self.config_manager.get_plugin_setting('copilot', 'provider', 'siliconflow')
+            self.provider = self.config_manager.get_plugin_setting('copilot', 'provider', PROVIDER_SILICONFLOW)
             
             api_key = self.config_manager.get_plugin_setting('copilot', 'api_key', '')
             
             # Get default model based on provider
-            if self.provider == 'modelscope':
+            if self.provider == PROVIDER_MODELSCOPE:
                 default_model = ModelScopeClient.DEFAULT_MODELS['chat']
             else:
                 default_model = SiliconFlowClient.DEFAULT_MODELS['chat']
@@ -100,7 +104,7 @@ class CopilotManager(QObject):
             
             if api_key:
                 # Create client based on provider
-                if self.provider == 'modelscope':
+                if self.provider == PROVIDER_MODELSCOPE:
                     self.client = ModelScopeClient(api_key, model)
                     info("Copilot client initialized with ModelScope", category=LogCategory.API)
                 else:
@@ -123,7 +127,7 @@ class CopilotManager(QObject):
         Args:
             api_key: API key (SiliconFlow or ModelScope)
             model: Optional model name
-            provider: Optional provider name ('siliconflow' or 'modelscope')
+            provider: Optional provider name (PROVIDER_SILICONFLOW or PROVIDER_MODELSCOPE)
         """
         self.config_manager.set_plugin_setting('copilot', 'api_key', api_key)
         
@@ -133,7 +137,7 @@ class CopilotManager(QObject):
             self.config_manager.set_plugin_setting('copilot', 'provider', provider)
         
         # Get default model based on provider
-        if self.provider == 'modelscope':
+        if self.provider == PROVIDER_MODELSCOPE:
             default_model = ModelScopeClient.DEFAULT_MODELS['chat']
         else:
             default_model = SiliconFlowClient.DEFAULT_MODELS['chat']
@@ -144,7 +148,7 @@ class CopilotManager(QObject):
             model = self.config_manager.get_plugin_setting('copilot', 'model', default_model)
         
         # Create client based on provider
-        if self.provider == 'modelscope':
+        if self.provider == PROVIDER_MODELSCOPE:
             self.client = ModelScopeClient(api_key, model)
             info("Copilot API key updated for ModelScope", category=LogCategory.CONFIG)
         else:
@@ -163,9 +167,9 @@ class CopilotManager(QObject):
         Switch to a different provider
         
         Args:
-            provider: Provider name ('siliconflow' or 'modelscope')
+            provider: Provider name (PROVIDER_SILICONFLOW or PROVIDER_MODELSCOPE)
         """
-        if provider not in ['siliconflow', 'modelscope']:
+        if provider not in [PROVIDER_SILICONFLOW, PROVIDER_MODELSCOPE]:
             error(f"Invalid provider: {provider}", category=LogCategory.CONFIG)
             return
             

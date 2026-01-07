@@ -9,13 +9,28 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                            QTextEdit, QLineEdit, QPushButton, QComboBox,
                            QListWidget, QListWidgetItem,
                            QTabWidget, QMessageBox, QDialog, QFileDialog,
-                           QFormLayout, QDialogButtonBox)
+                           QFormLayout, QDialogButtonBox, QCheckBox)
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QTextCursor
 from qfluentwidgets import (PushButton, LineEdit, ComboBox, TextEdit, 
                            SubtitleLabel, BodyLabel)
 from src.utils.logger import info, warning, error, debug, LogCategory
+from src.copilot import PROVIDER_SILICONFLOW, PROVIDER_MODELSCOPE
+from src.copilot.siliconflow_client import SiliconFlowClient
+from src.copilot.modelscope_client import ModelScopeClient
 from datetime import datetime
+
+
+# Provider display name mapping
+PROVIDER_DISPLAY_NAMES = {
+    PROVIDER_SILICONFLOW: 'SiliconFlow',
+    PROVIDER_MODELSCOPE: 'ModelScope'
+}
+
+PROVIDER_FROM_DISPLAY = {
+    'SiliconFlow': PROVIDER_SILICONFLOW,
+    'ModelScope': PROVIDER_MODELSCOPE
+}
 
 
 class CopilotPanel(QWidget):
@@ -528,11 +543,13 @@ class CopilotSettingsDialog(QDialog):
         # Provider selection
         layout.addWidget(QLabel("服务提供商:"))
         self.provider_combo = QComboBox()
-        self.provider_combo.addItems(["SiliconFlow", "ModelScope"])
+        self.provider_combo.addItems(list(PROVIDER_DISPLAY_NAMES.values()))
         
-        current_provider = self.config_manager.get_plugin_setting('copilot', 'provider', 'siliconflow')
-        provider_index = 0 if current_provider == 'siliconflow' else 1
-        self.provider_combo.setCurrentIndex(provider_index)
+        current_provider = self.config_manager.get_plugin_setting('copilot', 'provider', PROVIDER_SILICONFLOW)
+        display_name = PROVIDER_DISPLAY_NAMES.get(current_provider, 'SiliconFlow')
+        provider_index = self.provider_combo.findText(display_name)
+        if provider_index >= 0:
+            self.provider_combo.setCurrentIndex(provider_index)
         self.provider_combo.currentIndexChanged.connect(self._on_provider_changed)
         
         layout.addWidget(self.provider_combo)
@@ -566,7 +583,6 @@ class CopilotSettingsDialog(QDialog):
         layout.addWidget(self.model_combo)
         
         # Enable checkbox
-        from PyQt5.QtWidgets import QCheckBox
         self.enable_checkbox = QCheckBox("启用 Copilot")
         self.enable_checkbox.setChecked(
             self.config_manager.get_plugin_setting('copilot', 'enabled', False)
@@ -653,7 +669,8 @@ class CopilotSettingsDialog(QDialog):
         api_key = self.api_key_edit.text().strip()
         model = self.model_combo.currentText()
         enabled = self.enable_checkbox.isChecked()
-        provider = 'siliconflow' if self.provider_combo.currentText() == 'SiliconFlow' else 'modelscope'
+        provider_display = self.provider_combo.currentText()
+        provider = PROVIDER_FROM_DISPLAY.get(provider_display, PROVIDER_SILICONFLOW)
         
         if not api_key:
             QMessageBox.warning(self, "输入错误", "请输入API密钥")
@@ -671,23 +688,21 @@ class CopilotSettingsDialog(QDialog):
         """Test API connection"""
         api_key = self.api_key_edit.text().strip()
         model = self.model_combo.currentText()
-        provider = self.provider_combo.currentText()
+        provider_display = self.provider_combo.currentText()
         
         if not api_key:
             QMessageBox.warning(self, "输入错误", "请输入API密钥")
             return
             
         try:
-            if provider == "SiliconFlow":
-                from src.copilot.siliconflow_client import SiliconFlowClient
+            if provider_display == "SiliconFlow":
                 client = SiliconFlowClient(api_key, model)
             else:  # ModelScope
-                from src.copilot.modelscope_client import ModelScopeClient
                 client = ModelScopeClient(api_key, model)
             
             if client.test_connection():
-                QMessageBox.information(self, "成功", f"{provider} API连接成功！")
+                QMessageBox.information(self, "成功", f"{provider_display} API连接成功！")
             else:
-                QMessageBox.warning(self, "失败", f"{provider} API连接失败")
+                QMessageBox.warning(self, "失败", f"{provider_display} API连接失败")
         except Exception as e:
             QMessageBox.critical(self, "错误", f"测试失败: {str(e)}")
